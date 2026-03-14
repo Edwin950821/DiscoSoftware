@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { API_MANAGEMENT } from '../lib/config'
+import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Producto } from '../types'
 
 export function useProductos() {
@@ -7,11 +7,12 @@ export function useProductos() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/productos`)
+      const res = await apiFetch(`${API_MANAGEMENT}/productos`)
       if (!res.ok) throw new Error('Error fetching productos')
       const data = await res.json()
       setProductos(data.map((p: any) => ({ ...p, id: String(p.id) })))
-    } catch {
+    } catch (e) {
+      console.error('Error cargando productos:', e)
     }
   }, [])
 
@@ -19,7 +20,7 @@ export function useProductos() {
 
   const agregar = async (p: Omit<Producto, 'id'>) => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/productos`, {
+      const res = await apiFetch(`${API_MANAGEMENT}/productos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(p),
@@ -33,7 +34,7 @@ export function useProductos() {
 
   const actualizar = async (id: string, data: Partial<Producto>) => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/productos/${id}`, {
+      const res = await apiFetch(`${API_MANAGEMENT}/productos/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -47,7 +48,7 @@ export function useProductos() {
 
   const eliminar = async (id: string) => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/productos/${id}`, { method: 'DELETE' })
+      const res = await apiFetch(`${API_MANAGEMENT}/productos/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Error deleting producto')
       await fetchAll()
     } catch (e) {

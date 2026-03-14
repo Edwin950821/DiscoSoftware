@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { API_MANAGEMENT } from '../lib/config'
+import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Jornada, LiquidacionTrabajador } from '../types'
 
 export function useJornadas() {
@@ -7,7 +7,7 @@ export function useJornadas() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/jornadas`)
+      const res = await apiFetch(`${API_MANAGEMENT}/jornadas`)
       if (!res.ok) throw new Error('Error fetching jornadas')
       const data = await res.json()
       setJornadas(data.map((j: any) => ({
@@ -23,7 +23,7 @@ export function useJornadas() {
           gastos: l.gastos || [],
         } as LiquidacionTrabajador)),
       } as Jornada)))
-    } catch { /* silent */ }
+    } catch (e) { console.error('Error cargando jornadas:', e) }
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
@@ -64,7 +64,7 @@ export function useJornadas() {
         })),
       })),
     }
-    const res = await fetch(`${API_MANAGEMENT}/jornadas`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/jornadas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -74,7 +74,7 @@ export function useJornadas() {
   }
 
   const eliminar = async (id: string) => {
-    const res = await fetch(`${API_MANAGEMENT}/jornadas/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('Error deleting jornada')
     await fetchAll()
   }

@@ -1,18 +1,21 @@
 import { useState, useMemo } from 'react'
-import { API_URL } from '../lib/config'
+import { API_URL, apiFetch } from '../lib/config'
 import type { DiscoRol } from '../types'
+import TerminosCondiciones from './TerminosCondiciones'
+import PoliticaPrivacidad from './PoliticaPrivacidad'
 
 interface LoginProps {
   onLogin: (accessToken: string, refreshToken: string, rol: DiscoRol, nombre: string) => void
 }
 
 export default function Login({ onLogin }: LoginProps) {
-  const [rol, setRol] = useState<DiscoRol>('ADMINISTRADOR')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showTerminos, setShowTerminos] = useState(false)
+  const [showPolitica, setShowPolitica] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,10 +28,10 @@ export default function Login({ onLogin }: LoginProps) {
 
     setLoading(true)
     try {
-      const res = await fetch(`${API_URL}/login`, {
+      const res = await apiFetch(`${API_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password, rol }),
+        body: JSON.stringify({ username: username.trim(), password }),
       })
 
       const data = await res.json()
@@ -96,29 +99,9 @@ export default function Login({ onLogin }: LoginProps) {
         >
       
           <div className="flex flex-col items-center mb-8">
-            <img src="/assets/M03.png" alt="Monastery" className="w-20 h-20 object-contain" />
+            <img src="/assets/M04.png" alt="Monastery" className="w-20 h-20 object-contain" />
           </div>
 
-          <div
-            className="flex rounded-full p-1 mb-8"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.15)' }}
-          >
-            {(['ADMINISTRADOR', 'DUENO'] as DiscoRol[]).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRol(r)}
-                className="flex-1 py-2.5 text-sm font-semibold rounded-full transition-all duration-300"
-                style={
-                  rol === r
-                    ? { background: 'linear-gradient(135deg, #D4AF37, #F5D76E)', color: '#0D0D0D', boxShadow: '0 0 12px rgba(212,175,55,0.3)' }
-                    : { color: 'rgba(255,255,255,0.45)' }
-                }
-              >
-                {r === 'ADMINISTRADOR' ? 'Administrador' : 'Dueño'}
-              </button>
-            ))}
-          </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
           
@@ -202,7 +185,17 @@ export default function Login({ onLogin }: LoginProps) {
             </button>
           </form>
 
-          <p className="text-center text-white/25 text-xs mt-8">Solo personal autorizado</p>
+          <p className="text-center text-white/20 text-[10px] mt-6 leading-relaxed">
+            Al ingresar, aceptas nuestros{' '}
+            <span className="underline cursor-pointer" style={{ color: '#D4AF37' }} onClick={() => setShowTerminos(true)}>
+              Términos y Condiciones
+            </span>{' '}
+            y{' '}
+            <span className="underline cursor-pointer" style={{ color: '#D4AF37' }} onClick={() => setShowPolitica(true)}>
+              Política de Privacidad
+            </span>
+          </p>
+          <p className="text-center text-white/15 text-[10px] mt-3">Solo personal autorizado</p>
         </div>
       </div>
 
@@ -212,6 +205,9 @@ export default function Login({ onLogin }: LoginProps) {
           background: 'radial-gradient(ellipse at center bottom, rgba(212,175,55,0.15) 0%, transparent 70%)',
         }}
       />
+
+      {showTerminos && <TerminosCondiciones onClose={() => setShowTerminos(false)} />}
+      {showPolitica && <PoliticaPrivacidad onClose={() => setShowPolitica(false)} />}
 
       <style>{`
         @keyframes float {

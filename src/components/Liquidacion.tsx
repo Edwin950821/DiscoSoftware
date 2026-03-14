@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import type {
-  Producto, Trabajador, Jornada, LiquidacionTrabajador,
-  LineaVenta, TransaccionPago, Vale, Cortesia, GastoDiario, TipoPago,
+  Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago,
   Inventario as InventarioType, LineaInventario, InventarioInput,
   Comparativo as ComparativoType, LineaComparativo, ComparativoInput,
 } from '../types'
@@ -103,7 +102,7 @@ export default function Liquidacion({
 }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab || 'liquidacion')
 
-  // ─── Liquidacion state ───
+
   const [modoLiq, setModoLiq] = useState<'lista' | 'nueva'>('lista')
   const nextSesion = () => {
     const nums = jornadas.map(j => { const m = j.sesion.match(/(\d+)/); return m ? Number(m[1]) : 0 })
@@ -118,7 +117,7 @@ export default function Liquidacion({
   const [confirmDeleteJ, setConfirmDeleteJ] = useState<string | null>(null)
   const [modalExito, setModalExito] = useState<string | null>(null)
 
-  // ─── Inventario state ───
+
   const [modoInv, setModoInv] = useState<'lista' | 'nuevo'>('lista')
   const [fechaInv, setFechaInv] = useState(new Date().toISOString().split('T')[0])
   const [lineasInv, setLineasInv] = useState<LineaInventario[]>([])
@@ -126,7 +125,7 @@ export default function Liquidacion({
   const [confirmDeleteI, setConfirmDeleteI] = useState<string | null>(null)
   const [guardandoI, setGuardandoI] = useState(false)
 
-  // ─── Comparativo state ───
+
   const [modoComp, setModoComp] = useState<'lista' | 'nuevo'>('lista')
   const [fechaComp, setFechaComp] = useState(new Date().toISOString().split('T')[0])
   const [lineasComp, setLineasComp] = useState<LineaComparativo[]>([])
@@ -134,14 +133,9 @@ export default function Liquidacion({
   const [confirmDeleteC, setConfirmDeleteC] = useState<string | null>(null)
   const [guardandoC, setGuardandoC] = useState(false)
 
-  // ─── Liquidacion helpers ───
+
   const fechasJornadas = new Set(jornadas.map(j => j.fecha))
   const fechaLiqDuplicada = fechasJornadas.has(fechaLiq)
-
-  const crearLineasVacias = (): LineaVenta[] =>
-    productos.filter(p => p.activo).map(p => ({
-      productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad: 0, total: 0,
-    }))
 
   const toggleTrabajador = (id: string) => {
     setLiquidaciones(prev => {
@@ -155,7 +149,7 @@ export default function Liquidacion({
       if (!t) return prev
       const newLiq: LiquidacionTrabajador = {
         trabajadorId: t.id, nombre: t.nombre, color: t.color, avatar: t.avatar,
-        lineas: crearLineasVacias(), transacciones: [], vales: [], cortesias: [], gastos: [],
+        lineas: [], transacciones: [], vales: [], cortesias: [], gastos: [],
         totalVenta: 0, efectivoEntregado: 0,
       }
       setActiveTrabajadorId(id)
@@ -175,19 +169,7 @@ export default function Liquidacion({
   const updateLiquidacion = (trabajadorId: string, updater: (liq: LiquidacionTrabajador) => LiquidacionTrabajador) => {
     setLiquidaciones(prev => prev.map(l => {
       if (l.trabajadorId !== trabajadorId) return l
-      const updated = updater(l)
-      const totalLineas = updated.lineas.reduce((s, ln) => s + ln.total, 0)
-      if (totalLineas > 0) updated.totalVenta = totalLineas
-      return updated
-    }))
-  }
-
-  const updateCantidad = (trabajadorId: string, productoId: string, cantidad: number) => {
-    updateLiquidacion(trabajadorId, liq => ({
-      ...liq,
-      lineas: liq.lineas.map(ln =>
-        ln.productoId === productoId ? { ...ln, cantidad, total: ln.precioUnitario * cantidad } : ln
-      ),
+      return updater(l)
     }))
   }
 
@@ -199,7 +181,7 @@ export default function Liquidacion({
     setLiquidaciones(prev => prev.map(l => l.trabajadorId === trabajadorId ? { ...l, totalVenta: total } : l))
   }
 
-  // Transacciones
+
   const addTransaccion = (trabajadorId: string, tipo: TipoPago) => {
     updateLiquidacion(trabajadorId, liq => ({
       ...liq, transacciones: [...liq.transacciones, { tipo, monto: 0 }],
@@ -216,7 +198,7 @@ export default function Liquidacion({
     }))
   }
 
-  // Vales
+
   const addVale = (trabajadorId: string) => {
     updateLiquidacion(trabajadorId, liq => ({
       ...liq, vales: [...liq.vales, { tercero: '', monto: 0 }],
@@ -231,7 +213,7 @@ export default function Liquidacion({
     updateLiquidacion(trabajadorId, liq => ({ ...liq, vales: liq.vales.filter((_, i) => i !== idx) }))
   }
 
-  // Cortesias
+
   const addCortesia = (trabajadorId: string) => {
     updateLiquidacion(trabajadorId, liq => ({
       ...liq, cortesias: [...liq.cortesias, { concepto: '', monto: 0 }],
@@ -246,7 +228,7 @@ export default function Liquidacion({
     updateLiquidacion(trabajadorId, liq => ({ ...liq, cortesias: liq.cortesias.filter((_, i) => i !== idx) }))
   }
 
-  // Gastos
+
   const addGasto = (trabajadorId: string) => {
     updateLiquidacion(trabajadorId, liq => ({
       ...liq, gastos: [...liq.gastos, { concepto: '', monto: 0 }],
@@ -262,7 +244,7 @@ export default function Liquidacion({
   }
 
   const cuadreDia = calcularCuadreDia(liquidaciones)
-  const todosConVentas = liquidaciones.length > 0 && liquidaciones.every(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
+  const todosConVentas = liquidaciones.length > 0 && liquidaciones.every(liq => liq.totalVenta > 0)
   const formValidoLiq = sesion.trim() !== '' && todosConVentas && !fechaLiqDuplicada
 
   const handleGuardarLiq = async () => {
@@ -293,7 +275,7 @@ export default function Liquidacion({
     setNuevoTrabajador('')
   }
 
-  // ─── Inventario helpers ───
+
   const fechasInv = new Set(inventarios.map(i => i.fecha))
   const fechaInvDuplicada = fechasInv.has(fechaInv)
 
@@ -313,7 +295,7 @@ export default function Liquidacion({
 
   useEffect(() => {
     if (modoInv === 'nuevo' && lineasInv.length === 0 && productos.length > 0) setLineasInv(generarLineasInv())
-  }, [modoInv, productos, lineasInv.length, inventarios])
+  }, [modoInv, productos, lineasInv.length])
 
   const actualizarLineaInv = (idx: number, campo: 'invInicial' | 'entradas' | 'invFisico', valor: string) => {
     setLineasInv(prev => prev.map((l, i) => {
@@ -341,7 +323,7 @@ export default function Liquidacion({
 
   const handleEliminarI = async (id: string) => { await eliminarInventario(id); setConfirmDeleteI(null); setExpandedInv(null) }
 
-  // ─── Comparativo helpers ───
+
   const fechasComp = new Set(comparativos.map(c => c.fecha))
   const fechaCompDuplicada = fechasComp.has(fechaComp)
 
@@ -400,7 +382,7 @@ export default function Liquidacion({
       {tab === 'liquidacion' && (
         modoLiq === 'nueva' ? (
           <LiquidacionNueva
-            productos={productos} trabajadores={trabajadores}
+            trabajadores={trabajadores}
             liquidaciones={liquidaciones} activeTrabajadorId={activeTrabajadorId}
             sesion={sesion} fecha={fechaLiq} fechaDuplicada={fechaLiqDuplicada}
             guardando={guardandoLiq} formValido={formValidoLiq}
@@ -409,11 +391,12 @@ export default function Liquidacion({
             handleAgregarTrabajador={handleAgregarTrabajador}
             setSesion={setSesion} setFecha={setFechaLiq}
             handleTabClick={handleTabClick}
-            updateCantidad={updateCantidad} updateEfectivoEntregado={updateEfectivoEntregado} updateTotalVentaManual={updateTotalVentaManual}
-            addTransaccion={addTransaccion} updateTransaccion={updateTransaccion} removeTransaccion={removeTransaccion}
-            addVale={addVale} updateVale={updateVale} removeVale={removeVale}
-            addCortesia={addCortesia} updateCortesia={updateCortesia} removeCortesia={removeCortesia}
-            addGasto={addGasto} updateGasto={updateGasto} removeGasto={removeGasto}
+            updateEfectivoEntregado={updateEfectivoEntregado} updateTotalVentaManual={updateTotalVentaManual}
+            updateTransaccion={updateTransaccion}
+            updateVale={updateVale} updateCortesia={updateCortesia} updateGasto={updateGasto}
+            updateLiqDirect={(tid: string, data: Partial<LiquidacionTrabajador>) => {
+              setLiquidaciones(prev => prev.map(l => l.trabajadorId !== tid ? l : { ...l, ...data }))
+            }}
             handleGuardar={handleGuardarLiq}
             onBack={() => setModoLiq('lista')}
           />
@@ -467,9 +450,7 @@ export default function Liquidacion({
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// LIQUIDACION LISTA
-// ════════════════════════════════════════════════════════════
+
 
 function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva }: {
   jornadas: Jornada[]; confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
@@ -581,44 +562,32 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// LIQUIDACION NUEVA — Vista principal de ingreso
-// ════════════════════════════════════════════════════════════
+
 
 function LiquidacionNueva({
-  productos, trabajadores, liquidaciones, activeTrabajadorId,
+  trabajadores, liquidaciones, activeTrabajadorId,
   sesion, fecha, fechaDuplicada, guardando, formValido, cuadreDia,
   nuevoTrabajador, setNuevoTrabajador, handleAgregarTrabajador,
   setSesion, setFecha, handleTabClick,
-  updateCantidad, updateEfectivoEntregado, updateTotalVentaManual,
-  addTransaccion, updateTransaccion, removeTransaccion,
-  addVale, updateVale, removeVale,
-  addCortesia, updateCortesia, removeCortesia,
-  addGasto, updateGasto, removeGasto,
+  updateEfectivoEntregado, updateTotalVentaManual,
+  updateTransaccion, updateVale, updateCortesia, updateGasto,
+  updateLiqDirect,
   handleGuardar, onBack,
 }: {
-  productos: Producto[]; trabajadores: Trabajador[]
+  trabajadores: Trabajador[]
   liquidaciones: LiquidacionTrabajador[]; activeTrabajadorId: string | null
   sesion: string; fecha: string; fechaDuplicada: boolean; guardando: boolean; formValido: boolean
   cuadreDia: ReturnType<typeof calcularCuadreDia>
   nuevoTrabajador: string; setNuevoTrabajador: (v: string) => void; handleAgregarTrabajador: () => void
   setSesion: (v: string) => void; setFecha: (v: string) => void
   handleTabClick: (id: string) => void
-  updateCantidad: (tid: string, pid: string, qty: number) => void
   updateEfectivoEntregado: (tid: string, val: number) => void
   updateTotalVentaManual: (tid: string, total: number) => void
-  addTransaccion: (tid: string, tipo: TipoPago) => void
   updateTransaccion: (tid: string, idx: number, monto: number) => void
-  removeTransaccion: (tid: string, idx: number) => void
-  addVale: (tid: string) => void
   updateVale: (tid: string, idx: number, field: 'tercero' | 'monto', value: string | number) => void
-  removeVale: (tid: string, idx: number) => void
-  addCortesia: (tid: string) => void
   updateCortesia: (tid: string, idx: number, field: 'concepto' | 'monto', value: string | number) => void
-  removeCortesia: (tid: string, idx: number) => void
-  addGasto: (tid: string) => void
   updateGasto: (tid: string, idx: number, field: 'concepto' | 'monto', value: string | number) => void
-  removeGasto: (tid: string, idx: number) => void
+  updateLiqDirect: (tid: string, data: Partial<LiquidacionTrabajador>) => void
   handleGuardar: () => void; onBack: () => void
 }) {
   const activeLiq = liquidaciones.find(l => l.trabajadorId === activeTrabajadorId)
@@ -627,14 +596,12 @@ function LiquidacionNueva({
     <div>
       <BackButton onClick={onBack} title="Nueva Liquidacion" />
 
-      {/* Header: sesion + fecha */}
       <div className="flex gap-2 sm:gap-3 items-end mb-2">
         <Input label="Sesion" value={sesion} onChange={e => setSesion(e.target.value)} placeholder="SI-7" className="w-24 sm:w-32" />
         <Input label="Fecha" type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="w-36 sm:w-44" />
       </div>
       {fechaDuplicada && <p className="text-xs text-[#FF5050] mb-3">Ya existe una liquidacion para esta fecha.</p>}
 
-      {/* Trabajadores chips */}
       <div className="flex gap-2 flex-wrap items-center mb-5">
         {trabajadores.filter(t => t.activo).map(t => {
           const sel = liquidaciones.some(l => l.trabajadorId === t.id)
@@ -650,7 +617,7 @@ function LiquidacionNueva({
               }}>
               <span className="font-bold">{t.avatar}</span>
               <span>{t.nombre}</span>
-              {sel && (() => { const c = calcularLiquidacion(liquidaciones.find(l => l.trabajadorId === t.id)!); return c.totalVenta > 0 ? <span className="text-[10px] opacity-70">{fmtCOP(c.totalVenta)}</span> : null })()}
+              {sel && (() => { const liq = liquidaciones.find(l => l.trabajadorId === t.id); if (!liq) return null; const c = calcularLiquidacion(liq); return c.totalVenta > 0 ? <span className="text-[10px] opacity-70">{fmtCOP(c.totalVenta)}</span> : null })()}
             </button>
           )
         })}
@@ -665,7 +632,6 @@ function LiquidacionNueva({
       {activeLiq ? (
         <div className="flex flex-col lg:flex-row gap-4">
 
-          {/* ─── Mobile: Cuadre resumen compacto ─── */}
           {liquidaciones.length > 0 && (
             <div className="lg:hidden flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
               <div className="flex gap-2 items-center shrink-0 px-3 py-2 rounded-lg border border-[#FFE66D]/15 bg-[#FFE66D]/[0.03]">
@@ -683,7 +649,6 @@ function LiquidacionNueva({
             </div>
           )}
 
-          {/* ─── Desktop: Panel izquierdo: Trabajadores + Cuadre dia ─── */}
           <div className="hidden lg:block w-[220px] shrink-0 space-y-2">
             {liquidaciones.map(liq => {
               const c = calcularLiquidacion(liq)
@@ -708,7 +673,6 @@ function LiquidacionNueva({
               )
             })}
 
-            {/* Cuadre del dia */}
             {liquidaciones.length > 0 && (
               <div className="mt-4 p-3 rounded-xl border border-[#FFE66D]/15 bg-[#FFE66D]/[0.03]">
                 <p className="text-[10px] text-white/40 font-medium mb-2 uppercase tracking-wider">Cuadre del Dia</p>
@@ -725,7 +689,6 @@ function LiquidacionNueva({
             )}
           </div>
 
-          {/* ─── Panel derecho: Formulario del trabajador activo ─── */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
@@ -734,10 +697,7 @@ function LiquidacionNueva({
               <span className="text-xs text-white/30 ml-auto">Liquidacion Diaria</span>
             </div>
 
-            {/* ─── PRODUCTOS: Mobile = solo total, Desktop = grilla completa ─── */}
-
-            {/* Mobile: input simple de total venta */}
-            <Card className="mb-4 lg:hidden">
+            <Card className="mb-4">
               <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Total Vendido</p>
               <MoneyInput label="" value={activeLiq.totalVenta}
                 onChange={v => updateTotalVentaManual(activeLiq.trabajadorId, v)}
@@ -745,170 +705,55 @@ function LiquidacionNueva({
               <p className="text-[10px] text-white/20 mt-2">Ingresa el total vendido por este trabajador</p>
             </Card>
 
-            {/* Desktop: grilla de cantidades por producto */}
-            <Card className="mb-4 hidden lg:block">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Productos — Cantidades Vendidas</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-white/10">
-                      <th className="text-left text-white/45 font-medium py-1.5 pr-2">Producto</th>
-                      <th className="text-center text-white/45 font-medium py-1.5 w-20">Precio</th>
-                      <th className="text-center text-white/45 font-medium py-1.5 w-24">Cantidad</th>
-                      <th className="text-right text-[#FFE66D]/70 font-medium py-1.5 pl-2 w-24">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeLiq.lineas.map(ln => (
-                      <tr key={ln.productoId} className={`border-b border-white/5 ${ln.cantidad > 0 ? 'bg-[#CDA52F]/[0.03]' : ''}`}>
-                        <td className="py-1.5 pr-2 text-white/80">{ln.nombre}</td>
-                        <td className="py-1.5 text-center text-white/40">{fmtCOP(ln.precioUnitario)}</td>
-                        <td className="py-1 px-1">
-                          <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => updateCantidad(activeLiq.trabajadorId, ln.productoId, Math.max(0, ln.cantidad - 1))}
-                              className="w-6 h-6 rounded bg-white/5 hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition-colors">-</button>
-                            <input type="number" min={0} value={ln.cantidad || ''} onChange={e => updateCantidad(activeLiq.trabajadorId, ln.productoId, Number(e.target.value) || 0)}
-                              className="w-12 bg-white/5 border border-white/10 rounded px-1 py-1 text-center text-white focus:outline-none focus:border-[#CDA52F]/50" />
-                            <button onClick={() => updateCantidad(activeLiq.trabajadorId, ln.productoId, ln.cantidad + 1)}
-                              className="w-6 h-6 rounded bg-white/5 hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition-colors">+</button>
-                          </div>
-                        </td>
-                        <td className={`py-1.5 pl-2 text-right font-bold ${ln.total > 0 ? 'text-[#FFE66D]' : 'text-white/15'}`}>{ln.total > 0 ? fmtCOP(ln.total) : '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-white/10">
-                      <td colSpan={3} className="py-2 text-right text-sm font-bold text-white/60">Total Venta:</td>
-                      <td className="py-2 pl-2 text-right text-sm font-bold text-[#FFE66D]">{fmtFull(activeLiq.totalVenta)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </Card>
-
-            {/* ─── EFECTIVO ENTREGADO ─── */}
             <Card className="mb-4">
               <MoneyInput label="Efectivo Entregado" value={activeLiq.efectivoEntregado}
                 onChange={v => updateEfectivoEntregado(activeLiq.trabajadorId, v)} />
             </Card>
 
-            {/* ─── MEDIOS DE PAGO (transacciones individuales) ─── */}
             <Card className="mb-4">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Medios de Pago Electronicos</p>
-              {TIPOS_PAGO.map(tipo => {
-                const trans = activeLiq.transacciones.map((t, i) => ({ ...t, _idx: i })).filter(t => t.tipo === tipo)
-                const total = trans.reduce((s, t) => s + t.monto, 0)
+              <p className="text-xs font-medium mb-3 uppercase tracking-wider" style={{ color: '#4ECDC4' }}>Total de Transferencias <span className="text-white/30 normal-case">(Datafono, QR, Nequi)</span></p>
+              {(() => {
+                const totalTransferencias = activeLiq.transacciones.reduce((s, t) => s + t.monto, 0)
                 return (
-                  <div key={tipo} className="mb-3">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-medium" style={{ color: COLORES_PAGO[tipo] }}>{tipo}</span>
-                      <div className="flex items-center gap-2">
-                        {total > 0 && <span className="text-[10px] text-white/30">Total: {fmtCOP(total)}</span>}
-                        <button onClick={() => addTransaccion(activeLiq.trabajadorId, tipo)}
-                          className="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-all">+ Agregar</button>
-                      </div>
-                    </div>
-                    {trans.length > 0 && (
-                      <div className="space-y-1 ml-3">
-                        {trans.map((t, localIdx) => (
-                          <div key={localIdx} className="flex items-center gap-2">
-                            <MoneyInput value={t.monto} onChange={v => updateTransaccion(activeLiq.trabajadorId, t._idx, v)} className="flex-1" />
-                            <button onClick={() => removeTransaccion(activeLiq.trabajadorId, t._idx)}
-                              className="text-[#FF5050]/50 hover:text-[#FF5050] p-1 transition-colors">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <MoneyInput value={totalTransferencias}
+                    onChange={v => {
+                      updateLiqDirect(activeLiq.trabajadorId, { transacciones: [{ tipo: 'Datafono' as TipoPago, monto: v }] })
+                    }}
+                    placeholder="$0" className="" />
                 )
-              })}
+              })()}
             </Card>
 
-            {/* ─── VALES ─── */}
             <Card className="mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-white/40 font-medium uppercase tracking-wider">Vales</p>
-                <button onClick={() => addVale(activeLiq.trabajadorId)}
-                  className="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-all">+ Agregar</button>
-              </div>
-              {activeLiq.vales.length === 0 ? (
-                <p className="text-xs text-white/20 text-center py-2">(ninguno)</p>
-              ) : (
-                <div className="space-y-2">
-                  {activeLiq.vales.map((v, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <input type="text" value={v.tercero} onChange={e => updateVale(activeLiq.trabajadorId, idx, 'tercero', e.target.value)}
-                        placeholder="Nombre del tercero"
-                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#CDA52F]/50" />
-                      <MoneyInput value={v.monto} onChange={val => updateVale(activeLiq.trabajadorId, idx, 'monto', val)} className="w-36" />
-                      <button onClick={() => removeVale(activeLiq.trabajadorId, idx)}
-                        className="text-[#FF5050]/50 hover:text-[#FF5050] p-1 transition-colors">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider" style={{ color: '#C3B1E1' }}>Vales</p>
+              <MoneyInput value={activeLiq.vales.length > 0 ? activeLiq.vales.reduce((s, v) => s + v.monto, 0) : 0}
+                onChange={v => {
+                  if (activeLiq.vales.length > 0) { updateVale(activeLiq.trabajadorId, 0, 'monto', v) }
+                  else { updateLiqDirect(activeLiq.trabajadorId, { vales: [{ tercero: 'Vales', monto: v }] }) }
+                }}
+                placeholder="$0" className="" />
             </Card>
 
-            {/* ─── CORTESIAS ─── */}
             <Card className="mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-white/40 font-medium uppercase tracking-wider">Cortesias</p>
-                <button onClick={() => addCortesia(activeLiq.trabajadorId)}
-                  className="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-all">+ Agregar</button>
-              </div>
-              {activeLiq.cortesias.length === 0 ? (
-                <p className="text-xs text-white/20 text-center py-2">(ninguna)</p>
-              ) : (
-                <div className="space-y-2">
-                  {activeLiq.cortesias.map((c, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <input type="text" value={c.concepto} onChange={e => updateCortesia(activeLiq.trabajadorId, idx, 'concepto', e.target.value)}
-                        placeholder="Concepto"
-                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#CDA52F]/50" />
-                      <MoneyInput value={c.monto} onChange={val => updateCortesia(activeLiq.trabajadorId, idx, 'monto', val)} className="w-36" />
-                      <button onClick={() => removeCortesia(activeLiq.trabajadorId, idx)}
-                        className="text-[#FF5050]/50 hover:text-[#FF5050] p-1 transition-colors">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cortesias</p>
+              <MoneyInput value={activeLiq.cortesias.length > 0 ? activeLiq.cortesias.reduce((s, c) => s + c.monto, 0) : 0}
+                onChange={v => {
+                  if (activeLiq.cortesias.length > 0) { updateCortesia(activeLiq.trabajadorId, 0, 'monto', v) }
+                  else { updateLiqDirect(activeLiq.trabajadorId, { cortesias: [{ concepto: 'Cortesias', monto: v }] }) }
+                }}
+                placeholder="$0" className="" />
             </Card>
 
-            {/* ─── GASTOS ─── */}
             <Card className="mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-white/40 font-medium uppercase tracking-wider">Gastos</p>
-                <button onClick={() => addGasto(activeLiq.trabajadorId)}
-                  className="text-[10px] px-2 py-0.5 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-all">+ Agregar</button>
-              </div>
-              {activeLiq.gastos.length === 0 ? (
-                <p className="text-xs text-white/20 text-center py-2">(ninguno)</p>
-              ) : (
-                <div className="space-y-2">
-                  {activeLiq.gastos.map((g, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <input type="text" value={g.concepto} onChange={e => updateGasto(activeLiq.trabajadorId, idx, 'concepto', e.target.value)}
-                        placeholder="Concepto"
-                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#CDA52F]/50" />
-                      <MoneyInput value={g.monto} onChange={val => updateGasto(activeLiq.trabajadorId, idx, 'monto', val)} className="w-36" />
-                      <button onClick={() => removeGasto(activeLiq.trabajadorId, idx)}
-                        className="text-[#FF5050]/50 hover:text-[#FF5050] p-1 transition-colors">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Gastos</p>
+              <MoneyInput value={activeLiq.gastos.length > 0 ? activeLiq.gastos.reduce((s, g) => s + g.monto, 0) : 0}
+                onChange={v => {
+                  if (activeLiq.gastos.length > 0) { updateGasto(activeLiq.trabajadorId, 0, 'monto', v) }
+                  else { updateLiqDirect(activeLiq.trabajadorId, { gastos: [{ concepto: 'Gastos', monto: v }] }) }
+                }}
+                placeholder="$0" className="" />
             </Card>
 
-            {/* ─── CUADRE TRABAJADOR ─── */}
             {(() => {
               const c = calcularLiquidacion(activeLiq)
               return (
@@ -942,7 +787,6 @@ function LiquidacionNueva({
         <Card className="text-center py-12 text-white/30 text-sm">Selecciona al menos un trabajador para comenzar</Card>
       )}
 
-      {/* Boton guardar */}
       {liquidaciones.length > 0 && (
         <div className="mt-4">
           {!formValido && !guardando && (
@@ -959,9 +803,7 @@ function LiquidacionNueva({
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// INVENTARIO
-// ════════════════════════════════════════════════════════════
+
 
 function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLinea, guardando, fechaDuplicada, handleGuardar, onBack }: {
   fecha: string; setFecha: (v: string) => void; lineas: LineaInventario[]; totalGeneral: number
@@ -1118,9 +960,7 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// COMPARATIVO
-// ════════════════════════════════════════════════════════════
+
 
 function ComparativoNuevo({ fecha, setFecha, lineas, totalConteo, totalTiquets, actualizarLinea, guardando, fechaDuplicada, handleGuardar, onBack }: {
   fecha: string; setFecha: (v: string) => void; lineas: LineaComparativo[]

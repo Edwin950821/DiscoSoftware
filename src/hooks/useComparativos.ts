@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { API_MANAGEMENT } from '../lib/config'
+import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Comparativo, ComparativoInput, LineaComparativo } from '../types'
 
 export function useComparativos() {
@@ -7,7 +7,7 @@ export function useComparativos() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/comparativos`)
+      const res = await apiFetch(`${API_MANAGEMENT}/comparativos`)
       if (!res.ok) throw new Error('Error fetching comparativos')
       const data = await res.json()
       setComparativos(data.map((c: any) => ({
@@ -18,7 +18,8 @@ export function useComparativos() {
           productoId: String(l.productoId),
         } as LineaComparativo)),
       } as Comparativo)))
-    } catch {
+    } catch (e) {
+      console.error('Error cargando comparativos:', e)
     }
   }, [])
 
@@ -35,7 +36,7 @@ export function useComparativos() {
           productoId: Number(l.productoId),
         })),
       }
-      const res = await fetch(`${API_MANAGEMENT}/comparativos`, {
+      const res = await apiFetch(`${API_MANAGEMENT}/comparativos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -49,7 +50,7 @@ export function useComparativos() {
 
   const eliminar = async (id: string) => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/comparativos/${id}`, { method: 'DELETE' })
+      const res = await apiFetch(`${API_MANAGEMENT}/comparativos/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Error deleting comparativo')
       await fetchAll()
     } catch (e) {

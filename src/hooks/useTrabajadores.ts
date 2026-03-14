@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { API_MANAGEMENT } from '../lib/config'
+import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Trabajador } from '../types'
 
 export function useTrabajadores() {
@@ -7,17 +7,17 @@ export function useTrabajadores() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/meseros`)
+      const res = await apiFetch(`${API_MANAGEMENT}/meseros`)
       if (!res.ok) throw new Error('Error fetching trabajadores')
       const data = await res.json()
       setTrabajadores(data.map((m: any) => ({ ...m, id: String(m.id) })))
-    } catch { /* silent */ }
+    } catch (e) { console.error('Error cargando trabajadores:', e) }
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
   const agregar = async (t: Omit<Trabajador, 'id'>) => {
-    const res = await fetch(`${API_MANAGEMENT}/meseros`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/meseros`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(t),
@@ -27,7 +27,7 @@ export function useTrabajadores() {
   }
 
   const actualizar = async (id: string, data: Partial<Trabajador>) => {
-    const res = await fetch(`${API_MANAGEMENT}/meseros/${id}`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/meseros/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -37,7 +37,7 @@ export function useTrabajadores() {
   }
 
   const eliminar = async (id: string) => {
-    const res = await fetch(`${API_MANAGEMENT}/meseros/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API_MANAGEMENT}/meseros/${id}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('Error deleting trabajador')
     await fetchAll()
   }

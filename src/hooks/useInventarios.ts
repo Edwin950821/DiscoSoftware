@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { API_MANAGEMENT } from '../lib/config'
+import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Inventario, InventarioInput, LineaInventario } from '../types'
 
 export function useInventarios() {
@@ -7,7 +7,7 @@ export function useInventarios() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/inventarios`)
+      const res = await apiFetch(`${API_MANAGEMENT}/inventarios`)
       if (!res.ok) throw new Error('Error fetching inventarios')
       const data = await res.json()
       setInventarios(data.map((inv: any) => ({
@@ -35,7 +35,7 @@ export function useInventarios() {
           productoId: Number(l.productoId),
         })),
       }
-      const res = await fetch(`${API_MANAGEMENT}/inventarios`, {
+      const res = await apiFetch(`${API_MANAGEMENT}/inventarios`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -49,7 +49,7 @@ export function useInventarios() {
 
   const eliminar = async (id: string) => {
     try {
-      const res = await fetch(`${API_MANAGEMENT}/inventarios/${id}`, { method: 'DELETE' })
+      const res = await apiFetch(`${API_MANAGEMENT}/inventarios/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Error deleting inventario')
       await fetchAll()
     } catch (e) {

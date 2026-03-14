@@ -3,7 +3,7 @@ import type { Trabajador } from '../types'
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
-import { API_URL } from '../lib/config'
+import { API_URL, apiFetch } from '../lib/config'
 
 const COLORES_TRABAJADOR = ['#CDA52F', '#4ECDC4', '#FFE66D', '#A8E6CF', '#C3B1E1', '#FF8FA3', '#98D8C8', '#FFB347']
 
@@ -73,7 +73,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
     }
     setPwLoading(true)
     try {
-      const res = await fetch(`${API_URL}/change-password`, {
+      const res = await apiFetch(`${API_URL}/change-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
         body: JSON.stringify({ currentPassword, newPassword }),

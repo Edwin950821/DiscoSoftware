@@ -11,7 +11,7 @@ import { useTrabajadores } from './hooks/useTrabajadores'
 import { useJornadas } from './hooks/useJornadas'
 import { useInventarios } from './hooks/useInventarios'
 import { useComparativos } from './hooks/useComparativos'
-import { API_URL } from './lib/config'
+import { API_URL, apiFetch } from './lib/config'
 import type { DiscoRol, View } from './types'
 
 function loadSession() {
@@ -58,7 +58,7 @@ export default function App() {
   }, [])
 
   const handleLogout = useCallback(async () => {
-    try { await fetch(`${API_URL}/logout`, { method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` } }) } catch { /* */ }
+    try { await apiFetch(`${API_URL}/logout`, { method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` } }) } catch { /* */ }
     clearSession()
   }, [accessToken, clearSession])
 
@@ -66,7 +66,7 @@ export default function App() {
     if (!refreshToken) return
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API_URL}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }) })
+        const res = await apiFetch(`${API_URL}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }) })
         if (res.ok) {
           const data = await res.json()
           saveSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, rol: rol!, nombre })
@@ -94,17 +94,11 @@ export default function App() {
       {/* ── Mobile Header ── */}
       <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/[0.07] px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <img src="/assets/M02.png" alt="M" className="h-8 object-contain" />
+          <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
           <span className="text-sm font-semibold text-white/80">Monastery</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-white/25 font-mono">{reloj}</span>
-          <button onClick={() => setMobileMenu(true)}
-            className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/60">
-              <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
-          </button>
         </div>
       </header>
 
@@ -164,8 +158,8 @@ export default function App() {
 
       {/* ── Desktop Sidebar ── */}
       <aside className="hidden lg:flex w-[220px] bg-[#0A0A0A] border-r border-white/[0.07] flex-col p-5 shrink-0 h-screen sticky top-0">
-        <div className="mb-6">
-          <img src="/assets/M02.png" alt="Monastery Club" className="h-14 object-contain mb-1" />
+        <div className="mb-6 flex flex-col items-center">
+          <img src="/assets/M04.png" alt="Monastery Club" className="h-24 object-contain mb-1" />
           <p className="text-xs text-white/30">MVP</p>
           <p className="text-xs text-white/20 mt-1 font-mono">{reloj}</p>
         </div>
