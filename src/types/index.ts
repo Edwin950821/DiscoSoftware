@@ -1,6 +1,6 @@
 export type DiscoRol = 'ADMINISTRADOR' | 'DUENO'
-export type View = 'login' | 'dashboard' | 'jornadas' | 'liquidacion' | 'productos' | 'configuracion'
-export type MedioPago = 'Efectivo' | 'Transferencias' | 'Vales'
+export type View = 'login' | 'dashboard' | 'liquidacion' | 'jornadas' | 'inventario' | 'comparativo' | 'productos' | 'configuracion'
+export type TipoPago = 'Datafono' | 'QR' | 'Nequi'
 
 export interface Producto {
   id: string
@@ -9,7 +9,7 @@ export interface Producto {
   activo: boolean
 }
 
-export interface Mesero {
+export interface Trabajador {
   id: string
   nombre: string
   color: string
@@ -17,17 +17,65 @@ export interface Mesero {
   activo: boolean
 }
 
-export interface MeseroJornada {
-  meseroId: string
+// ─── Liquidacion Diaria (por trabajador por dia) ───
+
+export interface LineaVenta {
+  productoId: string
+  nombre: string
+  precioUnitario: number
+  cantidad: number
+  total: number
+}
+
+export interface TransaccionPago {
+  tipo: TipoPago
+  monto: number
+}
+
+export interface Vale {
+  tercero: string
+  monto: number
+}
+
+export interface Cortesia {
+  concepto: string
+  monto: number
+}
+
+export interface GastoDiario {
+  concepto: string
+  monto: number
+}
+
+export interface LiquidacionTrabajador {
+  trabajadorId: string
   nombre: string
   color: string
   avatar: string
-  totalMesero: number
-  pagos: Record<MedioPago, number>
-  cortesias: number
-  gastos: number
+  lineas: LineaVenta[]
+  transacciones: TransaccionPago[]
+  vales: Vale[]
+  cortesias: Cortesia[]
+  gastos: GastoDiario[]
+  totalVenta: number
   efectivoEntregado: number
 }
+
+export interface Jornada {
+  id: string
+  sesion: string
+  fecha: string
+  liquidaciones: LiquidacionTrabajador[]
+  pagos: Record<string, number>
+  cortesias: number
+  gastos: number
+  totalVendido: number
+  totalRecibido: number
+  saldo: number
+  creadoEn?: any
+}
+
+// ─── Inventario ───
 
 export interface LineaInventario {
   productoId: string
@@ -50,25 +98,7 @@ export interface Inventario {
 
 export type InventarioInput = Omit<Inventario, 'id' | 'creadoEn'>
 
-export interface Jornada {
-  id: string
-  sesion: string
-  fecha: string
-  meseros: MeseroJornada[]
-  pagos: Record<MedioPago, number>
-  cortesias: number
-  gastos: number
-  totalVendido: number
-  totalRecibido: number
-  saldo: number
-  creadoEn?: any
-}
-
-export type JornadaInput = {
-  sesion: string
-  fecha: string
-  meseros: MeseroJornada[]
-}
+// ─── Comparativo ───
 
 export interface LineaComparativo {
   productoId: string

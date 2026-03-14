@@ -18,7 +18,8 @@ export function useInventarios() {
           productoId: String(l.productoId),
         } as LineaInventario)),
       } as Inventario)))
-    } catch {
+    } catch (e) {
+      console.error('Error cargando inventarios:', e)
     }
   }, [])
 
