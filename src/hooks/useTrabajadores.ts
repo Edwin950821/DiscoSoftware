@@ -11,18 +11,21 @@ export function useTrabajadores() {
       if (!res.ok) throw new Error('Error fetching trabajadores')
       const data = await res.json()
       setTrabajadores(data.map((m: any) => ({ ...m, id: String(m.id) })))
-    } catch (e) { console.error('Error cargando trabajadores:', e) }
+    } catch {}
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const agregar = async (t: Omit<Trabajador, 'id'>) => {
+  const agregar = async (t: Omit<Trabajador, 'id'> & { username?: string; password?: string }) => {
     const res = await apiFetch(`${API_MANAGEMENT}/meseros`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(t),
     })
-    if (!res.ok) throw new Error('Error creating trabajador')
+    if (!res.ok) {
+      const err = await res.json().catch(() => null)
+      throw new Error(err?.message || 'Error creating trabajador')
+    }
     await fetchAll()
   }
 

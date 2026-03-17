@@ -23,7 +23,7 @@ export function useJornadas() {
           gastos: l.gastos || [],
         } as LiquidacionTrabajador)),
       } as Jornada)))
-    } catch (e) { console.error('Error cargando jornadas:', e) }
+    } catch {}
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])

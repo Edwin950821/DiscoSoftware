@@ -51,7 +51,6 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
   const totalGastos = jornadasFiltradas.reduce((s, j) => s + j.cortesias + j.gastos, 0)
   const saldoGlobal = jornadasFiltradas.reduce((s, j) => s + j.saldo, 0)
 
-  // ─── Area Chart: Rendimiento mensual ───
   const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
   const mesMap: Record<string, { vendido: number; recibido: number; orden: number }> = {}
   jornadasFiltradas.forEach(j => {
@@ -66,7 +65,6 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
     .sort(([, a], [, b]) => a.orden - b.orden)
     .map(([mes, d]) => ({ mes, Vendido: d.vendido, Recibido: d.recibido }))
 
-  // ─── Pie Chart: Pagos por medio ───
   const pagosMap: Record<string, number> = {}
   jornadasFiltradas.forEach(j => {
     if (j.pagos) Object.entries(j.pagos).forEach(([k, v]) => { pagosMap[k] = (pagosMap[k] || 0) + (v as number) })
@@ -74,7 +72,6 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
   const pieData = Object.entries(pagosMap).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
   const pieTotal = pieData.reduce((s, d) => s + d.value, 0)
 
-  // ─── Ranking trabajadores ───
   const rankingMap: Record<string, { nombre: string; color: string; avatar: string; total: number; noches: number }> = {}
   // Inicializar con todos los trabajadores registrados
   trabajadores.forEach(t => {
@@ -91,7 +88,6 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
   const ranking = Object.values(rankingMap).sort((a, b) => b.total - a.total)
   const maxRanking = ranking.length > 0 ? ranking[0].total : 1
 
-  // ─── Top productos ───
   const productosMap: Record<string, { nombre: string; cantidad: number; total: number }> = {}
   jornadasFiltradas.forEach(j => {
     j.liquidaciones?.forEach(liq => {

@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import type {
   Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago,
   Inventario as InventarioType, LineaInventario, InventarioInput,
   Comparativo as ComparativoType, LineaComparativo, ComparativoInput,
+  Pedido, CuentaMesa,
 } from '../types'
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
 import { DateRangeFilter } from './ui/DateRangeFilter'
 import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
+import { API_PEDIDOS, apiFetch } from '../lib/config'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
 const COLORES_PAGO: Record<string, string> = { Efectivo: '#CDA52F', Datafono: '#A8E6CF', QR: '#4ECDC4', Nequi: '#FFE66D', Vales: '#C3B1E1' }
@@ -147,9 +149,12 @@ export default function Liquidacion({
       }
       const t = trabajadores.find(x => x.id === id)
       if (!t) return prev
+      const lineasIniciales = productos.filter(p => p.activo).map(p => ({
+        productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad: 0, total: 0,
+      }))
       const newLiq: LiquidacionTrabajador = {
         trabajadorId: t.id, nombre: t.nombre, color: t.color, avatar: t.avatar,
-        lineas: [], transacciones: [], vales: [], cortesias: [], gastos: [],
+        lineas: lineasIniciales, transacciones: [], vales: [], cortesias: [], gastos: [],
         totalVenta: 0, efectivoEntregado: 0,
       }
       setActiveTrabajadorId(id)
@@ -179,6 +184,17 @@ export default function Liquidacion({
 
   const updateTotalVentaManual = (trabajadorId: string, total: number) => {
     setLiquidaciones(prev => prev.map(l => l.trabajadorId === trabajadorId ? { ...l, totalVenta: total } : l))
+  }
+
+  const updateLineaCantidad = (trabajadorId: string, productoId: string, cantidad: number) => {
+    if (cantidad < 0) return
+    updateLiquidacion(trabajadorId, liq => {
+      const lineas = liq.lineas.map(l =>
+        l.productoId === productoId ? { ...l, cantidad, total: l.precioUnitario * cantidad } : l
+      )
+      const totalVenta = lineas.reduce((s, l) => s + l.total, 0)
+      return { ...liq, lineas, totalVenta }
+    })
   }
 
 
@@ -244,7 +260,7 @@ export default function Liquidacion({
   }
 
   const cuadreDia = calcularCuadreDia(liquidaciones)
-  const todosConVentas = liquidaciones.length > 0 && liquidaciones.every(liq => liq.totalVenta > 0)
+  const todosConVentas = liquidaciones.length > 0 && liquidaciones.every(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
   const formValidoLiq = sesion.trim() !== '' && todosConVentas && !fechaLiqDuplicada
 
   const handleGuardarLiq = async () => {
@@ -392,6 +408,7 @@ export default function Liquidacion({
             setSesion={setSesion} setFecha={setFechaLiq}
             handleTabClick={handleTabClick}
             updateEfectivoEntregado={updateEfectivoEntregado} updateTotalVentaManual={updateTotalVentaManual}
+            updateLineaCantidad={updateLineaCantidad}
             updateTransaccion={updateTransaccion}
             updateVale={updateVale} updateCortesia={updateCortesia} updateGasto={updateGasto}
             updateLiqDirect={(tid: string, data: Partial<LiquidacionTrabajador>) => {
@@ -570,6 +587,7 @@ function LiquidacionNueva({
   nuevoTrabajador, setNuevoTrabajador, handleAgregarTrabajador,
   setSesion, setFecha, handleTabClick,
   updateEfectivoEntregado, updateTotalVentaManual,
+  updateLineaCantidad,
   updateTransaccion, updateVale, updateCortesia, updateGasto,
   updateLiqDirect,
   handleGuardar, onBack,
@@ -583,6 +601,7 @@ function LiquidacionNueva({
   handleTabClick: (id: string) => void
   updateEfectivoEntregado: (tid: string, val: number) => void
   updateTotalVentaManual: (tid: string, total: number) => void
+  updateLineaCantidad: (tid: string, productoId: string, cantidad: number) => void
   updateTransaccion: (tid: string, idx: number, monto: number) => void
   updateVale: (tid: string, idx: number, field: 'tercero' | 'monto', value: string | number) => void
   updateCortesia: (tid: string, idx: number, field: 'concepto' | 'monto', value: string | number) => void
@@ -591,6 +610,50 @@ function LiquidacionNueva({
   handleGuardar: () => void; onBack: () => void
 }) {
   const activeLiq = liquidaciones.find(l => l.trabajadorId === activeTrabajadorId)
+
+  // Fetch pedidos/cuentas del dia para ver tickets del trabajador
+  const [pedidosHoy, setPedidosHoy] = useState<Pedido[]>([])
+  const [cuentasHoy, setCuentasHoy] = useState<CuentaMesa[]>([])
+  const [ticketsExpanded, setTicketsExpanded] = useState(true)
+  const [expandedTicket, setExpandedTicket] = useState<string | null>(null)
+
+  const fetchPedidosHoy = useCallback(async () => {
+    try {
+      const [resPedidos, resCuentas] = await Promise.all([
+        apiFetch(`${API_PEDIDOS}/hoy`),
+        apiFetch(`${API_PEDIDOS}/cuentas/hoy`),
+      ])
+      if (resPedidos.ok) {
+        const data = await resPedidos.json()
+        setPedidosHoy(data.map((p: any) => ({ ...p, id: String(p.id) })))
+      }
+      if (resCuentas.ok) {
+        const data = await resCuentas.json()
+        setCuentasHoy(data.map((c: any) => ({
+          ...c,
+          id: String(c.id),
+          pedidos: (c.pedidos || []).map((p: any) => ({ ...p, id: String(p.id) })),
+        })))
+      }
+    } catch (e) { console.error('Error cargando pedidos para liquidacion:', e) }
+  }, [])
+
+  useEffect(() => { fetchPedidosHoy() }, [fetchPedidosHoy])
+
+  const pedidosTrabajador = useMemo(() => {
+    if (!activeTrabajadorId) return []
+    return pedidosHoy.filter(p => p.meseroId === activeTrabajadorId)
+  }, [pedidosHoy, activeTrabajadorId])
+
+  const cuentasTrabajador = useMemo(() => {
+    if (!activeTrabajadorId) return []
+    return cuentasHoy.filter(c => c.meseroId === activeTrabajadorId)
+  }, [cuentasHoy, activeTrabajadorId])
+
+  const totalTicketsTrabajador = useMemo(() => pedidosTrabajador.reduce((s, p) => s + p.total, 0), [pedidosTrabajador])
+
+  // Reset expandedTicket when switching workers
+  useEffect(() => { setExpandedTicket(null) }, [activeTrabajadorId])
 
   return (
     <div>
@@ -697,12 +760,186 @@ function LiquidacionNueva({
               <span className="text-xs text-white/30 ml-auto">Liquidacion Diaria</span>
             </div>
 
+            {pedidosTrabajador.length > 0 && (
+              <Card className="mb-4 border-[#D4AF37]/10">
+                <div className="flex items-center justify-between cursor-pointer" onClick={() => setTicketsExpanded(!ticketsExpanded)}>
+                  <div className="flex items-center gap-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    <p className="text-xs text-[#D4AF37] font-medium uppercase tracking-wider">
+                      Tickets del dia ({pedidosTrabajador.length})
+                    </p>
+                    <span className="text-xs text-[#FFE66D] font-bold">{fmtCOP(totalTicketsTrabajador)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={(e) => { e.stopPropagation(); fetchPedidosHoy() }}
+                      className="p-1 rounded-md hover:bg-white/5 text-white/30 hover:text-white/50 transition-colors" title="Actualizar">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                      </svg>
+                    </button>
+                    <Chevron expanded={ticketsExpanded} />
+                  </div>
+                </div>
+
+                {ticketsExpanded && (
+                  <div className="mt-3 space-y-2">
+                    {cuentasTrabajador.length > 0 && cuentasTrabajador.map(cuenta => {
+                      const pedidosCuenta = pedidosTrabajador.filter(p =>
+                        cuenta.pedidos.some(cp => cp.id === p.id)
+                      )
+                      if (pedidosCuenta.length === 0) return null
+                      return (
+                        <div key={`cuenta-${cuenta.id}`} className="rounded-lg bg-white/[0.03] border border-white/[0.05] overflow-hidden">
+                          <div className="flex items-center justify-between px-3 py-2 bg-white/[0.02]">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-white/60">{cuenta.mesaNombre}</span>
+                              <span className="text-[10px] text-white/30">— {cuenta.nombreCliente}</span>
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${
+                                cuenta.estado === 'PAGADA' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-[#FFE66D]/15 text-[#FFE66D]'
+                              }`}>{cuenta.estado}</span>
+                            </div>
+                            <span className="text-xs font-bold text-[#FFE66D]">{fmtCOP(cuenta.total)}</span>
+                          </div>
+                          <div className="divide-y divide-white/[0.03]">
+                            {pedidosCuenta.map(p => {
+                              const isExpanded = expandedTicket === p.id
+                              return (
+                                <div key={p.id}>
+                                  <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                                    onClick={() => setExpandedTicket(isExpanded ? null : p.id)}>
+                                    <span className="text-[10px] font-bold text-[#CDA52F]">#{p.ticketDia}</span>
+                                    <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${
+                                      p.estado === 'PENDIENTE' ? 'bg-[#FFE66D]/15 text-[#FFE66D]'
+                                      : p.estado === 'DESPACHADO' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]'
+                                      : p.estado === 'CANCELADO' ? 'bg-[#FF5050]/15 text-[#FF5050]'
+                                      : 'bg-white/5 text-white/30'
+                                    }`}>{p.estado}</span>
+                                    <span className="text-[10px] text-white/25">{p.lineas.length} items</span>
+                                    <span className="text-[10px] text-white/20 ml-auto">
+                                      {new Date(p.creadoEn).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                    <span className="text-xs text-white/60 font-medium">{fmtCOP(p.total)}</span>
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                                      className={`text-white/20 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                                      <polyline points="6 9 12 15 18 9"/>
+                                    </svg>
+                                  </div>
+                                  {isExpanded && (
+                                    <div className="px-3 pb-2 space-y-0.5">
+                                      {p.lineas.map(l => (
+                                        <div key={l.id} className="flex items-center gap-2 py-0.5">
+                                          <span className="w-5 h-5 rounded bg-[#CDA52F]/10 text-[#CDA52F] text-[9px] font-bold flex items-center justify-center shrink-0">{l.cantidad}</span>
+                                          <span className="text-[11px] text-white/50 flex-1">{l.nombre}</span>
+                                          <span className="text-[10px] text-white/20">{fmtCOP(l.precioUnitario)} c/u</span>
+                                          <span className="text-[11px] text-white/50 font-medium w-16 text-right">{fmtCOP(l.total)}</span>
+                                        </div>
+                                      ))}
+                                      {p.nota && <p className="text-[10px] text-white/25 italic mt-1">Nota: {p.nota}</p>}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {/* Pedidos sueltos (sin cuenta asociada) */}
+                    {(() => {
+                      const pedidosSinCuenta = pedidosTrabajador.filter(p =>
+                        !cuentasTrabajador.some(c => c.pedidos.some(cp => cp.id === p.id))
+                      )
+                      if (pedidosSinCuenta.length === 0) return null
+                      return pedidosSinCuenta.map(p => {
+                        const isExpanded = expandedTicket === p.id
+                        return (
+                          <div key={p.id} className="rounded-lg bg-white/[0.03] border border-white/[0.05] overflow-hidden">
+                            <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                              onClick={() => setExpandedTicket(isExpanded ? null : p.id)}>
+                              <span className="text-[10px] font-bold text-[#CDA52F]">#{p.ticketDia}</span>
+                              <span className="text-[10px] text-white/40">{p.mesaNombre}</span>
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${
+                                p.estado === 'PENDIENTE' ? 'bg-[#FFE66D]/15 text-[#FFE66D]'
+                                : p.estado === 'DESPACHADO' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]'
+                                : p.estado === 'CANCELADO' ? 'bg-[#FF5050]/15 text-[#FF5050]'
+                                : 'bg-white/5 text-white/30'
+                              }`}>{p.estado}</span>
+                              <span className="text-[10px] text-white/20 ml-auto">
+                                {new Date(p.creadoEn).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <span className="text-xs text-white/60 font-medium">{fmtCOP(p.total)}</span>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                                className={`text-white/20 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                                <polyline points="6 9 12 15 18 9"/>
+                              </svg>
+                            </div>
+                            {isExpanded && (
+                              <div className="px-3 pb-2 space-y-0.5">
+                                {p.lineas.map(l => (
+                                  <div key={l.id} className="flex items-center gap-2 py-0.5">
+                                    <span className="w-5 h-5 rounded bg-[#CDA52F]/10 text-[#CDA52F] text-[9px] font-bold flex items-center justify-center shrink-0">{l.cantidad}</span>
+                                    <span className="text-[11px] text-white/50 flex-1">{l.nombre}</span>
+                                    <span className="text-[10px] text-white/20">{fmtCOP(l.precioUnitario)} c/u</span>
+                                    <span className="text-[11px] text-white/50 font-medium w-16 text-right">{fmtCOP(l.total)}</span>
+                                  </div>
+                                ))}
+                                {p.nota && <p className="text-[10px] text-white/25 italic mt-1">Nota: {p.nota}</p>}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+                )}
+              </Card>
+            )}
+
             <Card className="mb-4">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Total Vendido</p>
-              <MoneyInput label="" value={activeLiq.totalVenta}
-                onChange={v => updateTotalVentaManual(activeLiq.trabajadorId, v)}
-                placeholder="Total de venta" className="" />
-              <p className="text-[10px] text-white/20 mt-2">Ingresa el total vendido por este trabajador</p>
+              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Productos — Cantidades Vendidas</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="text-left text-white/45 text-xs font-medium py-2 pr-2">Producto</th>
+                      <th className="text-center text-white/45 text-xs font-medium py-2 px-1 w-16">Precio</th>
+                      <th className="text-center text-white/45 text-xs font-medium py-2 px-1 w-32">Cantidad</th>
+                      <th className="text-right text-[#FFE66D] text-xs font-medium py-2 pl-1 w-20">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeLiq.lineas.map(l => (
+                      <tr key={l.productoId} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
+                        <td className="py-2 px-1 text-center text-xs text-white/45">{fmtCOP(l.precioUnitario)}</td>
+                        <td className="py-1 px-1">
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, l.cantidad - 1)}
+                              className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">-</button>
+                            <input type="number" min={0} value={l.cantidad || ''}
+                              onChange={e => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, Number(e.target.value) || 0)}
+                              className="bg-white/5 border border-white/10 rounded px-1 py-1 text-xs text-white w-12 text-center focus:outline-none focus:border-[#CDA52F]/50" />
+                            <button onClick={() => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, l.cantidad + 1)}
+                              className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">+</button>
+                          </div>
+                        </td>
+                        <td className="py-2 pl-1 text-right text-xs font-bold text-white/30">{l.total > 0 ? <span className="text-[#FFE66D]">{fmtCOP(l.total)}</span> : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {activeLiq.lineas.some(l => l.total > 0) && (
+                    <tfoot>
+                      <tr className="border-t-2 border-white/10">
+                        <td colSpan={3} className="py-3 text-right text-sm font-bold text-white/70">Total Vendido:</td>
+                        <td className="py-3 pl-1 text-right text-sm font-bold text-[#FFE66D]">{fmtFull(activeLiq.lineas.reduce((s, l) => s + l.total, 0))}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
             </Card>
 
             <Card className="mb-4">

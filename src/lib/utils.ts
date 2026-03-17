@@ -12,14 +12,20 @@ export const fmtFull = (n: number): string =>
 
 /** Calcula totales derivados de una liquidacion de trabajador */
 export function calcularLiquidacion(liq: LiquidacionTrabajador) {
-  const totalVentaLineas = liq.lineas.reduce((s, l) => s + l.total, 0)
+  const lineas = liq.lineas || []
+  const transacciones = liq.transacciones || []
+  const vales = liq.vales || []
+  const cortesias = liq.cortesias || []
+  const gastos = liq.gastos || []
+
+  const totalVentaLineas = lineas.reduce((s, l) => s + l.total, 0)
   const totalVenta = totalVentaLineas > 0 ? totalVentaLineas : (liq.totalVenta || 0)
-  const totalDatafono = liq.transacciones.filter(t => t.tipo === 'Datafono').reduce((s, t) => s + t.monto, 0)
-  const totalQR = liq.transacciones.filter(t => t.tipo === 'QR').reduce((s, t) => s + t.monto, 0)
-  const totalNequi = liq.transacciones.filter(t => t.tipo === 'Nequi').reduce((s, t) => s + t.monto, 0)
-  const totalVales = liq.vales.reduce((s, v) => s + v.monto, 0)
-  const totalCortesias = liq.cortesias.reduce((s, c) => s + c.monto, 0)
-  const totalGastos = liq.gastos.reduce((s, g) => s + g.monto, 0)
+  const totalDatafono = transacciones.filter(t => t.tipo === 'Datafono').reduce((s, t) => s + t.monto, 0)
+  const totalQR = transacciones.filter(t => t.tipo === 'QR').reduce((s, t) => s + t.monto, 0)
+  const totalNequi = transacciones.filter(t => t.tipo === 'Nequi').reduce((s, t) => s + t.monto, 0)
+  const totalVales = vales.reduce((s, v) => s + v.monto, 0)
+  const totalCortesias = cortesias.reduce((s, c) => s + c.monto, 0)
+  const totalGastos = gastos.reduce((s, g) => s + g.monto, 0)
 
   const esperado = totalVenta - totalCortesias - totalGastos
   const totalRecibido = liq.efectivoEntregado + totalDatafono + totalQR + totalNequi + totalVales

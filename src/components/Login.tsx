@@ -5,7 +5,7 @@ import TerminosCondiciones from './TerminosCondiciones'
 import PoliticaPrivacidad from './PoliticaPrivacidad'
 
 interface LoginProps {
-  onLogin: (accessToken: string, refreshToken: string, rol: DiscoRol, nombre: string) => void
+  onLogin: (accessToken: string, refreshToken: string, rol: DiscoRol, nombre: string, meseroId?: string) => void
 }
 
 export default function Login({ onLogin }: LoginProps) {
@@ -41,7 +41,7 @@ export default function Login({ onLogin }: LoginProps) {
         return
       }
 
-      onLogin(data.accessToken, data.refreshToken, data.rol, data.nombre)
+      onLogin(data.accessToken, data.refreshToken, data.rol, data.nombre, data.meseroId ? String(data.meseroId) : undefined)
     } catch {
       setError('No se pudo conectar al servidor')
     } finally {
@@ -82,7 +82,7 @@ export default function Login({ onLogin }: LoginProps) {
         </div>
 
         <div className="relative z-10 text-center px-12">
-          <img src="/assets/M02.png" alt="Monastery Club" className="h-16 object-contain mx-auto mb-6" />
+          <img src="/assets/M05.png" alt="Monastery Club" className="h-16 object-contain mx-auto mb-6" />
           <p className="text-white/50 text-lg">La mejor experiencia en Baranoa</p>
           <div className="mt-8 w-24 h-[1px] mx-auto bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
@@ -195,7 +195,7 @@ export default function Login({ onLogin }: LoginProps) {
               Política de Privacidad
             </span>
           </p>
-          <p className="text-center text-white/15 text-[10px] mt-3">Solo personal autorizado</p>
+          <p className="text-center text-white/15 text-[10px] mt-3">Un producto Codfy SAS</p>
         </div>
       </div>
 

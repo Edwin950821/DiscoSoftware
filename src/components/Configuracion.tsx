@@ -1,23 +1,33 @@
-import { useState } from 'react'
-import type { Trabajador } from '../types'
+import { useState, useMemo } from 'react'
+import type { Trabajador, Promocion } from '../types'
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
 import { API_URL, apiFetch } from '../lib/config'
+import { usePromociones } from '../hooks/usePromociones'
+import { useProductos } from '../hooks/useProductos'
 
 const COLORES_TRABAJADOR = ['#CDA52F', '#4ECDC4', '#FFE66D', '#A8E6CF', '#C3B1E1', '#FF8FA3', '#98D8C8', '#FFB347']
 
 interface Props {
   accessToken: string
   trabajadores: Trabajador[]
-  agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
+  agregarTrabajador: (t: Omit<Trabajador, 'id'> & { username?: string; password?: string }) => Promise<void>
   actualizarTrabajador: (id: string, data: Partial<Trabajador>) => Promise<void>
   eliminarTrabajador: (id: string) => Promise<void>
 }
 
 export default function Configuracion({ accessToken, trabajadores, agregarTrabajador, actualizarTrabajador, eliminarTrabajador }: Props) {
-  const [tab, setTab] = useState<'trabajadores' | 'seguridad'>('trabajadores')
+  const [tab, setTab] = useState<'trabajadores' | 'promociones' | 'seguridad'>('trabajadores')
+  const { promociones, crear: crearPromo, actualizar: actualizarPromo, eliminar: eliminarPromo, toggleActiva } = usePromociones()
+  const { productos } = useProductos()
+  const productosActivos = useMemo(() => productos.filter(p => p.activo), [productos])
+
   const [nuevoNombre, setNuevoNombre] = useState('')
+  const [nuevoUsername, setNuevoUsername] = useState('')
+  const [nuevoPassword, setNuevoPassword] = useState('')
+  const [crearError, setCrearError] = useState('')
+  const [creando, setCreando] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editNombre, setEditNombre] = useState('')
@@ -28,18 +38,39 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
   const [pwMsg, setPwMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [pwLoading, setPwLoading] = useState(false)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [showCreatedModal, setShowCreatedModal] = useState<{ nombre: string; username: string } | null>(null)
+  const [showDeletedModal, setShowDeletedModal] = useState<string | null>(null)
 
   const handleAgregar = async () => {
-    if (!nuevoNombre.trim()) return
-    const color = COLORES_TRABAJADOR[trabajadores.length % COLORES_TRABAJADOR.length]
-    const avatar = nuevoNombre.trim().slice(0, 2).toUpperCase()
-    await agregarTrabajador({ nombre: nuevoNombre.trim(), color, avatar, activo: true })
-    setNuevoNombre('')
+    const nombre = nuevoNombre.trim()
+    const username = nuevoUsername.trim().toLowerCase()
+    const password = nuevoPassword
+    setCrearError('')
+
+    if (!nombre) { setCrearError('El nombre es requerido'); return }
+    if (!username) { setCrearError('El usuario es requerido'); return }
+    if (username.length < 2) { setCrearError('El usuario debe tener al menos 2 caracteres'); return }
+    if (!password || password.length < 6) { setCrearError('La contrasena debe tener al menos 6 caracteres'); return }
+
+    setCreando(true)
+    try {
+      const color = COLORES_TRABAJADOR[trabajadores.length % COLORES_TRABAJADOR.length]
+      const avatar = nombre.slice(0, 2).toUpperCase()
+      await agregarTrabajador({ nombre, color, avatar, activo: true, username, password })
+      setShowCreatedModal({ nombre, username })
+      setNuevoNombre(''); setNuevoUsername(''); setNuevoPassword('')
+    } catch (e: any) {
+      setCrearError(e.message || 'Error al crear trabajador')
+    } finally {
+      setCreando(false)
+    }
   }
 
   const handleEliminar = async (id: string) => {
+    const t = trabajadores.find(t => t.id === id)
     await eliminarTrabajador(id)
     setConfirmDelete(null)
+    setShowDeletedModal(t?.nombre || 'Trabajador')
   }
 
   const startEdit = (t: Trabajador) => {
@@ -110,12 +141,59 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
         </div>
       )}
 
+      {showDeletedModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowDeletedModal(null)}>
+          <div className="bg-[#1a1a1a] border border-white/10 rounded-xl p-6 max-w-sm mx-4 text-center" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-[#FF5050]/15 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-[#FF5050]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </div>
+            <p className="text-white font-semibold text-lg mb-1">Trabajador eliminado</p>
+            <p className="text-sm text-white/50 mb-5">{showDeletedModal} fue eliminado exitosamente</p>
+            <Btn onClick={() => setShowDeletedModal(null)} className="w-full">Aceptar</Btn>
+          </div>
+        </div>
+      )}
+
+      {showCreatedModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowCreatedModal(null)}>
+          <div className="bg-[#1a1a1a] border border-white/10 rounded-xl p-6 max-w-sm mx-4 text-center" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-[#4ECDC4]/15 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-[#4ECDC4]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <p className="text-white font-semibold text-lg mb-1">Trabajador creado</p>
+            <p className="text-sm text-white/50 mb-4">{showCreatedModal.nombre} ya puede iniciar sesion</p>
+            <div className="bg-white/5 rounded-lg p-3 mb-4 text-left space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-xs text-white/40">Usuario</span>
+                <span className="text-sm text-white font-medium">{showCreatedModal.username}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-white/40">Contrasena</span>
+                <span className="text-sm text-white font-medium tracking-widest">******</span>
+              </div>
+            </div>
+            <Btn onClick={() => setShowCreatedModal(null)} className="w-full">Aceptar</Btn>
+          </div>
+        </div>
+      )}
+
       <h2 className="text-xl font-bold mb-6">Configuracion</h2>
 
       <div className="flex gap-1 mb-6 bg-white/5 rounded-lg p-1 w-fit">
         <button onClick={() => setTab('trabajadores')}
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'trabajadores' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
           Trabajadores
+        </button>
+        <button onClick={() => setTab('promociones')}
+          className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'promociones' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
+          Promociones
+          {promociones.filter(p => p.activa).length > 0 && (
+            <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-[#4ECDC4]/20 text-[#4ECDC4] font-bold">
+              {promociones.filter(p => p.activa).length}
+            </span>
+          )}
         </button>
         <button onClick={() => setTab('seguridad')}
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'seguridad' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
@@ -125,31 +203,45 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
 
       {tab === 'trabajadores' && (
         <div className="max-w-lg">
-          {/* Agregar nuevo */}
           <Card className="mb-4">
             <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Agregar Trabajador</p>
-            <div className="flex gap-2">
-              <Input value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)}
-                placeholder="Nombre del trabajador"
-                onKeyDown={(e: React.KeyboardEvent) => e.key === 'Enter' && handleAgregar()}
-                className="flex-1" />
-              <Btn onClick={handleAgregar} disabled={!nuevoNombre.trim()}>Agregar</Btn>
-            </div>
-            {nuevoNombre.trim() && (
-              <div className="flex items-center gap-2 mt-2 text-xs text-white/30">
-                <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold"
-                  style={{
-                    backgroundColor: COLORES_TRABAJADOR[trabajadores.length % COLORES_TRABAJADOR.length] + '33',
-                    color: COLORES_TRABAJADOR[trabajadores.length % COLORES_TRABAJADOR.length],
-                  }}>
-                  {nuevoNombre.trim().slice(0, 2).toUpperCase()}
+            <div className="space-y-3">
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <Input value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)}
+                    placeholder="Nombre del trabajador" label="Nombre" />
                 </div>
-                <span>Vista previa del avatar</span>
+                {nuevoNombre.trim() && (
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mb-0.5"
+                    style={{
+                      backgroundColor: COLORES_TRABAJADOR[trabajadores.length % COLORES_TRABAJADOR.length] + '33',
+                      color: COLORES_TRABAJADOR[trabajadores.length % COLORES_TRABAJADOR.length],
+                    }}>
+                    {nuevoNombre.trim().slice(0, 2).toUpperCase()}
+                  </div>
+                )}
               </div>
-            )}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex-1">
+                  <Input value={nuevoUsername} onChange={e => setNuevoUsername(e.target.value)}
+                    placeholder="ej: gabriel" label="Usuario (login)" />
+                </div>
+                <div className="flex-1">
+                  <Input value={nuevoPassword} onChange={e => setNuevoPassword(e.target.value)}
+                    placeholder="Min 6 caracteres" label="Contrasena" type="password" />
+                </div>
+              </div>
+              {crearError && (
+                <div className="text-sm text-center py-2 px-3 rounded-lg border bg-red-500/10 text-red-400 border-red-500/20">
+                  {crearError}
+                </div>
+              )}
+              <Btn onClick={handleAgregar} disabled={creando || !nuevoNombre.trim() || !nuevoUsername.trim() || nuevoPassword.length < 6}>
+                {creando ? 'Creando...' : 'Agregar Trabajador'}
+              </Btn>
+            </div>
           </Card>
 
-          {/* Lista de trabajadores */}
           <div className="space-y-2">
             {trabajadores.length === 0 ? (
               <Card className="text-center py-8 text-white/30 text-sm">No hay trabajadores registrados</Card>
@@ -181,11 +273,22 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
                     </div>
                   ) : (
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${!t.activo ? 'opacity-40' : ''}`}
                         style={{ backgroundColor: t.color + '33', color: t.color }}>{t.avatar}</div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white/80 font-medium">{t.nombre}</p>
-                        <p className="text-[10px] text-white/25">ID: {t.id}</p>
+                        <div className="flex items-center gap-2">
+                          <p className={`text-sm font-medium ${t.activo ? 'text-white/80' : 'text-white/30 line-through'}`}>{t.nombre}</p>
+                          {!t.activo && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#FF5050]/15 text-[#FF5050] font-medium">Bloqueado</span>
+                          )}
+                        </div>
+                        {t.username ? (
+                          <p className="text-[10px] text-white/35">
+                            <span className="text-white/20">@</span>{t.username}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-white/20 italic">Sin usuario</p>
+                        )}
                       </div>
                       {confirmDelete === t.id ? (
                         <div className="flex items-center gap-2">
@@ -195,6 +298,19 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
                         </div>
                       ) : (
                         <div className="flex items-center gap-1">
+                          <button onClick={() => actualizarTrabajador(t.id, { activo: !t.activo })}
+                            title={t.activo ? 'Bloquear' : 'Activar'}
+                            className={`p-1 transition-colors ${t.activo ? 'text-white/20 hover:text-[#FF5050]' : 'text-[#FF5050]/50 hover:text-[#4ECDC4]'}`}>
+                            {t.activo ? (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                              </svg>
+                            ) : (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+                              </svg>
+                            )}
+                          </button>
                           <button onClick={() => startEdit(t)} title="Editar"
                             className="text-white/20 hover:text-[#CDA52F] transition-colors p-1">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -218,16 +334,26 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
         </div>
       )}
 
+      {tab === 'promociones' && (
+        <PromocionesTab
+          promociones={promociones}
+          productos={productosActivos}
+          onCrear={crearPromo}
+          onToggle={toggleActiva}
+          onEliminar={eliminarPromo}
+        />
+      )}
+
       {tab === 'seguridad' && (
         <Card className="max-w-md">
           <h3 className="text-sm font-medium text-white/45 mb-4">Cambiar contrasena</h3>
           <div className="space-y-3">
             <Input label="Contrasena actual" type="password" value={currentPassword}
-              onChange={e => setCurrentPassword(e.target.value)} placeholder="••••••" />
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCurrentPassword(e.target.value)} placeholder="••••••" />
             <Input label="Nueva contrasena" type="password" value={newPassword}
-              onChange={e => setNewPassword(e.target.value)} placeholder="Minimo 6 caracteres" />
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)} placeholder="Minimo 6 caracteres" />
             <Input label="Confirmar nueva contrasena" type="password" value={confirmPassword}
-              onChange={e => setConfirmPassword(e.target.value)} placeholder="Repetir nueva contrasena" />
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)} placeholder="Repetir nueva contrasena" />
 
             {pwMsg && !pwMsg.ok && (
               <div className="text-sm text-center py-2 px-3 rounded-lg border bg-red-500/10 text-red-400 border-red-500/20">
@@ -240,6 +366,247 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
             </Btn>
           </div>
         </Card>
+      )}
+    </div>
+  )
+}
+
+const fmtCOP = (n: number) => '$' + Number(n || 0).toLocaleString('es-CO')
+
+function PromocionesTab({ promociones, productos, onCrear, onToggle, onEliminar }: {
+  promociones: Promocion[]
+  productos: { id: string; nombre: string; precio: number }[]
+  onCrear: (req: any) => Promise<any>
+  onToggle: (id: string, activa: boolean) => Promise<any>
+  onEliminar: (id: string) => Promise<void>
+}) {
+  const [nombre, setNombre] = useState('')
+  const [compraIds, setCompraIds] = useState<string[]>([])
+  const [compraCantidad, setCompraCantidad] = useState(1)
+  const [regaloId, setRegaloId] = useState('')
+  const [regaloCantidad, setRegaloCantidad] = useState(1)
+  const [creando, setCreando] = useState(false)
+  const [error, setError] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [showCreatedModal, setShowCreatedModal] = useState<string | null>(null)
+  const [showDeletedModal, setShowDeletedModal] = useState<string | null>(null)
+
+  const toggleCompraId = (id: string) => {
+    setCompraIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  const handleCrear = async () => {
+    setError('')
+    if (!nombre.trim()) { setError('Nombre requerido'); return }
+    if (compraIds.length === 0) { setError('Selecciona al menos un producto de compra'); return }
+    if (!regaloId) { setError('Selecciona el producto de regalo'); return }
+    if (compraCantidad < 1 || regaloCantidad < 1) { setError('Las cantidades deben ser al menos 1'); return }
+
+    setCreando(true)
+    try {
+      const promoNombre = nombre.trim()
+      await onCrear({
+        nombre: promoNombre,
+        compraProductoIds: compraIds,
+        compraCantidad,
+        regaloProductoId: regaloId,
+        regaloCantidad,
+      })
+      setShowCreatedModal(promoNombre)
+      setNombre(''); setCompraIds([]); setCompraCantidad(1); setRegaloId(''); setRegaloCantidad(1); setShowForm(false)
+    } catch (e: any) {
+      setError(e.message || 'Error al crear')
+    } finally {
+      setCreando(false)
+    }
+  }
+
+  const regaloProducto = productos.find(p => p.id === regaloId)
+
+  return (
+    <div className="max-w-2xl">
+      {showCreatedModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowCreatedModal(null)}>
+          <div className="bg-[#1a1a1a] border border-white/10 rounded-xl p-6 max-w-sm mx-4 text-center" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-[#4ECDC4]/15 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-[#4ECDC4]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <p className="text-white font-semibold text-lg mb-1">Promocion creada</p>
+            <p className="text-sm text-white/50 mb-5">{showCreatedModal}</p>
+            <Btn onClick={() => setShowCreatedModal(null)} className="w-full">Aceptar</Btn>
+          </div>
+        </div>
+      )}
+
+      {showDeletedModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowDeletedModal(null)}>
+          <div className="bg-[#1a1a1a] border border-white/10 rounded-xl p-6 max-w-sm mx-4 text-center" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-[#FF5050]/15 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-[#FF5050]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </div>
+            <p className="text-white font-semibold text-lg mb-1">Promocion eliminada</p>
+            <p className="text-sm text-white/50 mb-5">{showDeletedModal}</p>
+            <Btn onClick={() => setShowDeletedModal(null)} className="w-full">Aceptar</Btn>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-white/40 uppercase tracking-wider">
+          Promociones ({promociones.length})
+        </p>
+        <Btn size="sm" onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Cancelar' : '+ Nueva Promo'}
+        </Btn>
+      </div>
+
+      {showForm && (
+        <Card className="mb-4">
+          <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Nueva Promocion</p>
+          <div className="space-y-3">
+            <Input value={nombre} onChange={e => setNombre(e.target.value)}
+              placeholder="Ej: 2x1 Cervezas, 3 Coronas = 1 Electrolit" label="Nombre de la promo" />
+
+            <div>
+              <label className="text-xs text-white/45 block mb-1.5">Productos de compra (toca para seleccionar)</label>
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                {productos.map(p => {
+                  const selected = compraIds.includes(p.id)
+                  return (
+                    <button key={p.id} onClick={() => toggleCompraId(p.id)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border transition-all ${
+                        selected
+                          ? 'border-[#CDA52F]/50 bg-[#CDA52F]/15 text-[#CDA52F]'
+                          : 'border-white/10 bg-white/[0.03] text-white/40 hover:border-white/20'
+                      }`}>
+                      {p.nombre}
+                    </button>
+                  )
+                })}
+              </div>
+              {compraIds.length > 0 && (
+                <p className="text-[10px] text-[#CDA52F]/60 mt-1">{compraIds.length} producto(s) seleccionado(s)</p>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <div className="w-32">
+                <label className="text-xs text-white/45 block mb-1">Compra</label>
+                <input type="number" min={1} value={compraCantidad || ''}
+                  onChange={e => setCompraCantidad(Number(e.target.value) || 0)}
+                  onBlur={() => { if (compraCantidad < 1) setCompraCantidad(1) }}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#CDA52F]/50" />
+              </div>
+              <div className="flex items-end pb-2 text-white/30 text-lg font-bold">&rarr;</div>
+              <div className="flex-1">
+                <label className="text-xs text-white/45 block mb-1">Producto regalo</label>
+                <select value={regaloId} onChange={e => setRegaloId(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#CDA52F]/50 [&>option]:bg-[#1a1a1a]">
+                  <option value="">Seleccionar...</option>
+                  {productos.map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre} ({fmtCOP(p.precio)})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-24">
+                <label className="text-xs text-white/45 block mb-1">Gratis</label>
+                <input type="number" min={1} value={regaloCantidad || ''}
+                  onChange={e => setRegaloCantidad(Number(e.target.value) || 0)}
+                  onBlur={() => { if (regaloCantidad < 1) setRegaloCantidad(1) }}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#CDA52F]/50" />
+              </div>
+            </div>
+
+            {nombre && compraIds.length > 0 && regaloId && (
+              <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-3">
+                <p className="text-xs text-white/50">Preview:</p>
+                <p className="text-sm text-white/80 mt-1">
+                  Por cada <span className="text-[#CDA52F] font-bold">{compraCantidad}</span> de{' '}
+                  <span className="text-[#CDA52F]">{compraIds.length === 1
+                    ? productos.find(p => p.id === compraIds[0])?.nombre
+                    : `${compraIds.length} productos`
+                  }</span>
+                  {' '}&rarr;{' '}
+                  <span className="text-[#4ECDC4] font-bold">{regaloCantidad}</span>{' '}
+                  <span className="text-[#4ECDC4]">{regaloProducto?.nombre}</span> gratis
+                  {regaloProducto && (
+                    <span className="text-white/30"> ({fmtCOP(regaloProducto.precio)} c/u)</span>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {error && (
+              <div className="text-sm text-center py-2 px-3 rounded-lg border bg-red-500/10 text-red-400 border-red-500/20">
+                {error}
+              </div>
+            )}
+
+            <Btn onClick={handleCrear} disabled={creando || !nombre.trim() || compraIds.length === 0 || !regaloId}>
+              {creando ? 'Creando...' : 'Crear Promocion'}
+            </Btn>
+          </div>
+        </Card>
+      )}
+
+      {promociones.length === 0 ? (
+        <Card className="text-center py-8 text-white/30 text-sm">No hay promociones creadas</Card>
+      ) : (
+        <div className="space-y-2">
+          {promociones.map(promo => (
+            <Card key={promo.id}>
+              <div className="flex items-center gap-3">
+                <button onClick={() => onToggle(promo.id, !promo.activa)}
+                  className={`w-10 h-6 rounded-full transition-all relative shrink-0 ${
+                    promo.activa ? 'bg-[#4ECDC4]' : 'bg-white/10'
+                  }`}>
+                  <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
+                    promo.activa ? 'left-5' : 'left-1'
+                  }`} />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm font-medium ${promo.activa ? 'text-white' : 'text-white/40'}`}>
+                      {promo.nombre}
+                    </p>
+                    {promo.activa && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#4ECDC4]/15 text-[#4ECDC4] font-medium">ACTIVA</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-white/35 mt-0.5">
+                    Compra {promo.compraCantidad} de{' '}
+                    <span className="text-[#CDA52F]/60">
+                      {promo.compraProductoNombres.length <= 2
+                        ? promo.compraProductoNombres.join(', ')
+                        : `${promo.compraProductoNombres.length} productos`
+                      }
+                    </span>
+                    {' '}&rarr; {promo.regaloCantidad}{' '}
+                    <span className="text-[#4ECDC4]/60">{promo.regaloProductoNombre}</span> gratis
+                    <span className="text-white/20"> ({fmtCOP(promo.regaloProductoPrecio)})</span>
+                  </p>
+                </div>
+                {confirmDeleteId === promo.id ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-[#FF5050]">Eliminar?</span>
+                    <Btn size="sm" variant="danger" onClick={() => { onEliminar(promo.id); setConfirmDeleteId(null); setShowDeletedModal(promo.nombre) }}>Si</Btn>
+                    <Btn size="sm" variant="ghost" onClick={() => setConfirmDeleteId(null)}>No</Btn>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmDeleteId(promo.id)}
+                    className="text-white/20 hover:text-[#FF5050] transition-colors p-1 shrink-0">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   )

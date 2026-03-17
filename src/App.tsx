@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import Jornadas from './components/Jornadas'
 import Configuracion from './components/Configuracion'
 import Productos from './components/Productos'
 import Liquidacion from './components/Liquidacion'
+import PedidosAdmin from './components/PedidosAdmin'
+import PedidosMesero from './components/PedidosMesero'
+import Ventas from './components/Ventas'
+import MesasBillar from './components/MesasBillar'
 import { Badge } from './components/ui/Badge'
 import { useProductos } from './hooks/useProductos'
 import { useTrabajadores } from './hooks/useTrabajadores'
@@ -12,32 +16,49 @@ import { useJornadas } from './hooks/useJornadas'
 import { useInventarios } from './hooks/useInventarios'
 import { useComparativos } from './hooks/useComparativos'
 import { API_URL, apiFetch } from './lib/config'
+import { initSocket, disconnectSocket } from './lib/socket'
+import { requestNotificationPermission } from './lib/notification'
 import type { DiscoRol, View } from './types'
 
-function loadSession() {
+interface SessionData {
+  accessToken: string
+  refreshToken: string
+  rol: DiscoRol
+  nombre: string
+  meseroId?: string
+}
+
+function loadSession(): SessionData | null {
   try {
-    const raw = sessionStorage.getItem('monastery_session')
+    const raw = sessionStorage.getItem('monastery_session') || localStorage.getItem('monastery_session')
     if (!raw) return null
-    return JSON.parse(raw) as { accessToken: string; refreshToken: string; rol: DiscoRol; nombre: string }
+    return JSON.parse(raw) as SessionData
   } catch { return null }
 }
 
-function saveSession(data: { accessToken: string; refreshToken: string; rol: DiscoRol; nombre: string }) {
-  sessionStorage.setItem('monastery_session', JSON.stringify(data))
+function saveSession(data: SessionData) {
+  const json = JSON.stringify(data)
+  sessionStorage.setItem('monastery_session', json)
+  localStorage.setItem('monastery_session', json)
 }
 
 function removeSession() {
   sessionStorage.removeItem('monastery_session')
+  localStorage.removeItem('monastery_session')
 }
 
 export default function App() {
-  const saved = loadSession()
-  const [view, setView] = useState<View>(saved ? 'dashboard' : 'login')
-  const [rol, setRol] = useState<DiscoRol | null>(saved?.rol ?? null)
-  const [nombre, setNombre] = useState(saved?.nombre ?? '')
+  const [initialSession] = useState(() => loadSession())
+  const [view, setView] = useState<View>(() => {
+    if (!initialSession) return 'login'
+    return initialSession.rol === 'MESERO' ? 'pedidos' : 'dashboard'
+  })
+  const [rol, setRol] = useState<DiscoRol | null>(() => initialSession?.rol ?? null)
+  const [nombre, setNombre] = useState(() => initialSession?.nombre ?? '')
   const [reloj, setReloj] = useState('')
-  const [accessToken, setAccessToken] = useState(saved?.accessToken ?? '')
-  const [refreshToken, setRefreshToken] = useState(saved?.refreshToken ?? '')
+  const [accessToken, setAccessToken] = useState(() => initialSession?.accessToken ?? '')
+  const [refreshToken, setRefreshToken] = useState(() => initialSession?.refreshToken ?? '')
+  const [meseroId, setMeseroId] = useState(() => initialSession?.meseroId ?? '')
   const [mobileMenu, setMobileMenu] = useState(false)
 
   const { productos, agregar: agregarProd, actualizar: actualizarProd, eliminar: eliminarProd } = useProductos()
@@ -53,33 +74,49 @@ export default function App() {
     return () => clearInterval(id)
   }, [])
 
+  useEffect(() => {
+    if (accessToken) initSocket(accessToken, meseroId || undefined)
+  }, [accessToken])
+
+  useEffect(() => {
+    if (rol === 'ADMINISTRADOR' || rol === 'MESERO') requestNotificationPermission()
+  }, [rol])
+
   const clearSession = useCallback(() => {
-    removeSession(); setAccessToken(''); setRefreshToken(''); setRol(null); setNombre(''); setView('login')
+    removeSession(); setAccessToken(''); setRefreshToken(''); setMeseroId(''); setRol(null); setNombre(''); setView('login')
   }, [])
 
   const handleLogout = useCallback(async () => {
     try { await apiFetch(`${API_URL}/logout`, { method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` } }) } catch { /* */ }
+    disconnectSocket()
     clearSession()
   }, [accessToken, clearSession])
+
+  const sessionRef = useRef({ refreshToken, rol, nombre, meseroId })
+  useEffect(() => { sessionRef.current = { refreshToken, rol, nombre, meseroId } }, [refreshToken, rol, nombre, meseroId])
 
   useEffect(() => {
     if (!refreshToken) return
     const interval = setInterval(async () => {
+      const s = sessionRef.current
+      if (!s.refreshToken) return
       try {
-        const res = await apiFetch(`${API_URL}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }) })
+        const res = await apiFetch(`${API_URL}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: s.refreshToken }) })
         if (res.ok) {
           const data = await res.json()
-          saveSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, rol: rol!, nombre })
+          saveSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, rol: s.rol!, nombre: s.nombre, meseroId: s.meseroId || undefined })
           setAccessToken(data.accessToken); setRefreshToken(data.refreshToken)
-        } else { clearSession() }
+        } else if (res.status === 401) { clearSession() }
       } catch { /* */ }
     }, 14 * 60 * 1000)
     return () => clearInterval(interval)
-  }, [refreshToken, rol, nombre, clearSession])
+  }, [clearSession])
 
-  const handleLogin = (at: string, rt: string, r: DiscoRol, n: string) => {
-    saveSession({ accessToken: at, refreshToken: rt, rol: r, nombre: n })
-    setAccessToken(at); setRefreshToken(rt); setRol(r); setNombre(n); setView('dashboard')
+  const handleLogin = (at: string, rt: string, r: DiscoRol, n: string, mId?: string) => {
+    saveSession({ accessToken: at, refreshToken: rt, rol: r, nombre: n, meseroId: mId })
+    initSocket(at, mId) // Inicializar socket ANTES del re-render para que los hijos tengan acceso
+    setAccessToken(at); setRefreshToken(rt); setRol(r); setNombre(n); setMeseroId(mId || '')
+    setView(r === 'MESERO' ? 'pedidos' : 'dashboard')
   }
 
   const navigate = (v: View) => { setView(v); setMobileMenu(false) }
@@ -87,23 +124,74 @@ export default function App() {
   if (view === 'login') return <Login onLogin={handleLogin} />
 
   const isAdmin = rol === 'ADMINISTRADOR'
+  const isMesero = rol === 'MESERO'
+  const rolLabel = isAdmin ? 'Administrador' : isMesero ? 'Mesero' : 'Dueno'
+  const pedidosMode = new URLSearchParams(window.location.search).get('mode') === 'pedidos'
+
+  if (isMesero) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white">
+        <header className="bg-[#0A0A0A] border-b border-white/[0.07] px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
+            <span className="text-sm font-semibold text-white/80">Monastery Club</span>
+            <span className="text-[10px] text-white/20 font-mono">{reloj}</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <span className="text-xs text-white/50 block">{nombre}</span>
+              <span className="text-[10px] text-[#D4AF37]/60">Mesero</span>
+            </div>
+            <button onClick={handleLogout} className="text-xs text-[#FF5050] hover:text-[#FF5050]/80 transition-colors">Salir</button>
+          </div>
+        </header>
+        <main className="p-4 sm:p-6">
+          <PedidosMesero meseroId={meseroId} />
+        </main>
+      </div>
+    )
+  }
+
+  if (pedidosMode) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white">
+        <header className="bg-[#0A0A0A] border-b border-white/[0.07] px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
+            <span className="text-sm font-semibold text-white/80">Monastery Club</span>
+            <span className="text-[10px] text-white/20 font-mono">{reloj}</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-white/30">{nombre}</span>
+            <button onClick={handleLogout} className="text-xs text-[#FF5050] hover:text-[#FF5050]/80 transition-colors">Cerrar sesion</button>
+          </div>
+        </header>
+        <main className="p-6">
+          <PedidosAdmin />
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col lg:flex-row">
 
-      {/* ── Mobile Header ── */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/[0.07] px-4 py-2.5 flex items-center justify-between">
+<header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/[0.07] px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
           <span className="text-sm font-semibold text-white/80">Monastery</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-white/25 font-mono">{reloj}</span>
+          {!isAdmin && (
+            <button onClick={handleLogout} className="text-[10px] text-[#FF5050] hover:text-[#FF5050]/80 transition-colors">
+              Salir
+            </button>
+          )}
         </div>
       </header>
 
-      {/* ── Mobile Menu Overlay ── */}
-      {mobileMenu && (
+{mobileMenu && (
         <div className="lg:hidden fixed inset-0 z-50" onClick={() => setMobileMenu(false)}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div className="absolute bottom-0 left-0 right-0 bg-[#141414] rounded-t-2xl border-t border-white/[0.1] p-5 pb-8"
@@ -118,7 +206,7 @@ export default function App() {
               </div>
               <div>
                 <p className="text-sm text-white/90 font-medium">{nombre}</p>
-                <p className="text-[11px] text-white/30">{isAdmin ? 'Administrador' : 'Dueno'}</p>
+                <p className="text-[11px] text-white/30">{rolLabel}</p>
               </div>
             </div>
 
@@ -127,6 +215,12 @@ export default function App() {
                 icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>} />
               {isAdmin && (
                 <>
+                  <MobileMenuItem label="Tickets" active={view === 'pedidos'} onClick={() => navigate('pedidos')}
+                    icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>} />
+                  <MobileMenuItem label="Ventas" active={view === 'ventas'} onClick={() => navigate('ventas')}
+                    icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+                  <MobileMenuItem label="Billar" active={view === 'billar'} onClick={() => navigate('billar')}
+                    icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4.5"/><text x="12" y="14.5" textAnchor="middle" fontSize="7" fontWeight="bold" fill="currentColor" stroke="none">8</text></svg>} />
                   <MobileMenuItem label="Liquidacion" active={view === 'liquidacion'} onClick={() => navigate('liquidacion')}
                     icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} />
                   <MobileMenuItem label="Jornadas" active={view === 'jornadas'} onClick={() => navigate('jornadas')} badge={jornadas.length > 0 ? jornadas.length : undefined}
@@ -156,8 +250,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Desktop Sidebar ── */}
-      <aside className="hidden lg:flex w-[220px] bg-[#0A0A0A] border-r border-white/[0.07] flex-col p-5 shrink-0 h-screen sticky top-0">
+<aside className="hidden lg:flex w-[220px] bg-[#0A0A0A] border-r border-white/[0.07] flex-col p-5 shrink-0 h-screen sticky top-0">
         <div className="mb-6 flex flex-col items-center">
           <img src="/assets/M04.png" alt="Monastery Club" className="h-24 object-contain mb-1" />
           <p className="text-xs text-white/30">MVP</p>
@@ -167,6 +260,9 @@ export default function App() {
           <SidebarLink label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />
           {isAdmin && (
             <>
+              <SidebarLink label="Tickets" active={view === 'pedidos'} onClick={() => setView('pedidos')} />
+              <SidebarLink label="Ventas" active={view === 'ventas'} onClick={() => setView('ventas')} />
+              <SidebarLink label="Billar" active={view === 'billar'} onClick={() => setView('billar')} />
               <SidebarLink label="Liquidacion" active={view === 'liquidacion'} onClick={() => setView('liquidacion')} />
               <SidebarLink label="Jornadas" active={view === 'jornadas'} onClick={() => setView('jornadas')}
                 badge={jornadas.length > 0 ? jornadas.length : undefined} />
@@ -188,7 +284,7 @@ export default function App() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-white/80 font-medium truncate">{nombre}</p>
-              <p className="text-[10px] text-white/30">{isAdmin ? 'Administrador' : 'Dueno'}</p>
+              <p className="text-[10px] text-white/30">{rolLabel}</p>
             </div>
           </div>
           <button onClick={handleLogout}
@@ -201,24 +297,22 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ── Bottom Navigation (Mobile) ── */}
-      {isAdmin && (
+{isAdmin && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-t border-white/[0.07] flex justify-around items-center px-2 py-1.5 safe-bottom">
           <BottomNavItem label="Home" active={view === 'dashboard'} onClick={() => setView('dashboard')}
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>} />
+          <BottomNavItem label="Tickets" active={view === 'pedidos'} onClick={() => setView('pedidos')}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>} />
+          <BottomNavItem label="Ventas" active={view === 'ventas'} onClick={() => setView('ventas')}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
           <BottomNavItem label="Liquidar" active={view === 'liquidacion'} onClick={() => setView('liquidacion')}
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} />
-          <BottomNavItem label="Jornadas" active={view === 'jornadas'} onClick={() => setView('jornadas')} badge={jornadas.length > 0 ? jornadas.length : undefined}
-            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} />
-          <BottomNavItem label="Inventario" active={view === 'inventario'} onClick={() => setView('inventario')}
-            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V21H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>} />
-          <BottomNavItem label="Mas" active={false} onClick={() => setMobileMenu(true)}
+          <BottomNavItem label="Mas" active={['jornadas','inventario','comparativo','productos','configuracion','billar'].includes(view)} onClick={() => setMobileMenu(true)}
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>} />
         </nav>
       )}
 
-      {/* ── Main Content ── */}
-      <main className="flex-1 p-4 lg:p-6 pt-16 lg:pt-6 pb-20 lg:pb-6 overflow-auto">
+<main className="flex-1 p-4 lg:p-6 pt-16 lg:pt-6 pb-20 lg:pb-6 overflow-auto">
         {view === 'dashboard' && <Dashboard jornadas={jornadas} trabajadores={trabajadores} />}
         {isAdmin && view === 'liquidacion' && (
           <Liquidacion
@@ -253,6 +347,9 @@ export default function App() {
             initialTab="comparativo"
           />
         )}
+        {isAdmin && view === 'pedidos' && <PedidosAdmin />}
+        {isAdmin && view === 'ventas' && <Ventas />}
+        {isAdmin && view === 'billar' && <MesasBillar />}
         {view === 'productos' && <Productos productos={productos} agregar={agregarProd} actualizar={actualizarProd} eliminar={eliminarProd} />}
         {view === 'configuracion' && (
           <Configuracion accessToken={accessToken} trabajadores={trabajadores}

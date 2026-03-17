@@ -11,9 +11,7 @@ export function useProductos() {
       if (!res.ok) throw new Error('Error fetching productos')
       const data = await res.json()
       setProductos(data.map((p: any) => ({ ...p, id: String(p.id) })))
-    } catch (e) {
-      console.error('Error cargando productos:', e)
-    }
+    } catch {}
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])

@@ -1,5 +1,5 @@
-export type DiscoRol = 'ADMINISTRADOR' | 'DUENO'
-export type View = 'login' | 'dashboard' | 'liquidacion' | 'jornadas' | 'inventario' | 'comparativo' | 'productos' | 'configuracion'
+export type DiscoRol = 'ADMINISTRADOR' | 'DUENO' | 'MESERO'
+export type View = 'login' | 'dashboard' | 'liquidacion' | 'jornadas' | 'inventario' | 'comparativo' | 'productos' | 'configuracion' | 'pedidos' | 'ventas' | 'billar'
 export type TipoPago = 'Datafono' | 'QR' | 'Nequi'
 
 export interface Producto {
@@ -15,9 +15,8 @@ export interface Trabajador {
   color: string
   avatar: string
   activo: boolean
+  username?: string
 }
-
-// ─── Liquidacion Diaria (por trabajador por dia) ───
 
 export interface LineaVenta {
   productoId: string
@@ -75,8 +74,6 @@ export interface Jornada {
   creadoEn?: any
 }
 
-// ─── Inventario ───
-
 export interface LineaInventario {
   productoId: string
   nombre: string
@@ -98,8 +95,6 @@ export interface Inventario {
 
 export type InventarioInput = Omit<Inventario, 'id' | 'creadoEn'>
 
-// ─── Comparativo ───
-
 export interface LineaComparativo {
   productoId: string
   nombre: string
@@ -118,3 +113,129 @@ export interface Comparativo {
 }
 
 export type ComparativoInput = Omit<Comparativo, 'id' | 'creadoEn'>
+
+export interface Mesa {
+  id: string
+  numero: number
+  nombre: string
+  estado: string
+  nombreCliente?: string
+  meseroId?: string
+  meseroNombre?: string
+  meseroColor?: string
+  meseroAvatar?: string
+}
+
+export interface LineaPedido {
+  id: string
+  productoId: string
+  nombre: string
+  precioUnitario: number
+  cantidad: number
+  total: number
+}
+
+export interface Pedido {
+  id: string
+  mesaId: string
+  mesaNumero: number
+  mesaNombre: string
+  meseroId: string
+  meseroNombre: string
+  meseroColor: string
+  meseroAvatar: string
+  ticketDia: number
+  estado: string
+  total: number
+  jornadaFecha: string
+  nota?: string
+  esCortesia: boolean
+  promoNombre?: string
+  lineas: LineaPedido[]
+  creadoEn: string
+  despachadoEn?: string
+}
+
+export interface CuentaMesa {
+  id: string
+  mesaId: string
+  mesaNumero: number
+  mesaNombre: string
+  nombreCliente: string
+  meseroId: string
+  meseroNombre: string
+  meseroColor: string
+  meseroAvatar: string
+  jornadaFecha: string
+  total: number
+  descuentoPromo?: number
+  totalConDescuento?: number | null
+  estado: string
+  pedidos: Pedido[]
+  creadoEn: string
+}
+
+export interface Promocion {
+  id: string
+  nombre: string
+  compraProductoIds: string[]
+  compraProductoNombres: string[]
+  compraCantidad: number
+  regaloProductoId: string
+  regaloProductoNombre: string
+  regaloProductoPrecio: number
+  regaloCantidad: number
+  activa: boolean
+}
+
+export interface PartidaBillar {
+  id: string
+  mesaBillarId: string
+  mesaBillarNumero: number
+  mesaBillarNombre: string
+  nombreCliente: string
+  horaInicio: string
+  horaFin?: string
+  precioPorHora: number
+  horasCobradas?: number
+  total?: number
+  estado: string
+  jornadaFecha: string
+  creadoEn: string
+}
+
+export interface MesaBillar {
+  id: string
+  numero: number
+  nombre: string
+  precioPorHora: number
+  estado: string
+  activo: boolean
+  partidaActiva?: PartidaBillar
+}
+
+export interface ResumenDia {
+  fecha: string
+  totalVentas: number
+  totalBillar: number
+  totalGeneral: number
+  cuentasCerradas: number
+  cuentasAbiertas: number
+  ticketsTotales: number
+  mesasAtendidas: number
+  partidasBillar: number
+  jornadaCerrada: boolean
+}
+
+export interface ResumenJornada {
+  id: string
+  fecha: string
+  totalVentas: number
+  totalBillar: number
+  totalGeneral: number
+  cuentasCerradas: number
+  ticketsTotales: number
+  mesasAtendidas: number
+  partidasBillar: number
+  cerradoEn: string
+}

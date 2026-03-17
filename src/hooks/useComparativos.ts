@@ -18,9 +18,7 @@ export function useComparativos() {
           productoId: String(l.productoId),
         } as LineaComparativo)),
       } as Comparativo)))
-    } catch (e) {
-      console.error('Error cargando comparativos:', e)
-    }
+    } catch {}
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
@@ -32,8 +30,10 @@ export function useComparativos() {
         totalConteo: comparativo.totalConteo,
         totalTiquets: comparativo.totalTiquets,
         lineas: comparativo.lineas.map(l => ({
-          ...l,
           productoId: Number(l.productoId),
+          nombre: l.nombre,
+          conteo: l.conteo,
+          tiquets: l.tiquets,
         })),
       }
       const res = await apiFetch(`${API_MANAGEMENT}/comparativos`, {
