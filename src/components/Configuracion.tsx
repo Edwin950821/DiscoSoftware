@@ -15,10 +15,12 @@ interface Props {
   agregarTrabajador: (t: Omit<Trabajador, 'id'> & { username?: string; password?: string }) => Promise<void>
   actualizarTrabajador: (id: string, data: Partial<Trabajador>) => Promise<void>
   eliminarTrabajador: (id: string) => Promise<void>
+  premiumEnabled: boolean
+  onTogglePremium: (pin: string) => Promise<boolean>
 }
 
-export default function Configuracion({ accessToken, trabajadores, agregarTrabajador, actualizarTrabajador, eliminarTrabajador }: Props) {
-  const [tab, setTab] = useState<'trabajadores' | 'promociones' | 'seguridad'>('trabajadores')
+export default function Configuracion({ accessToken, trabajadores, agregarTrabajador, actualizarTrabajador, eliminarTrabajador, premiumEnabled, onTogglePremium }: Props) {
+  const [tab, setTab] = useState<'trabajadores' | 'promociones' | 'seguridad' | 'modulos'>('trabajadores')
   const { promociones, crear: crearPromo, actualizar: actualizarPromo, eliminar: eliminarPromo, toggleActiva } = usePromociones()
   const { productos } = useProductos()
   const productosActivos = useMemo(() => productos.filter(p => p.activo), [productos])
@@ -186,7 +188,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'trabajadores' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
           Trabajadores
         </button>
-        <button onClick={() => setTab('promociones')}
+        {premiumEnabled && <button onClick={() => setTab('promociones')}
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'promociones' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
           Promociones
           {promociones.filter(p => p.activa).length > 0 && (
@@ -194,10 +196,14 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
               {promociones.filter(p => p.activa).length}
             </span>
           )}
-        </button>
+        </button>}
         <button onClick={() => setTab('seguridad')}
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'seguridad' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
           Seguridad
+        </button>
+        <button onClick={() => setTab('modulos')}
+          className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'modulos' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
+          Modulos
         </button>
       </div>
 
@@ -334,7 +340,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
         </div>
       )}
 
-      {tab === 'promociones' && (
+      {premiumEnabled && tab === 'promociones' && (
         <PromocionesTab
           promociones={promociones}
           productos={productosActivos}
@@ -367,6 +373,8 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
           </div>
         </Card>
       )}
+
+      {tab === 'modulos' && <ModulosPremium enabled={premiumEnabled} onToggle={onTogglePremium} />}
     </div>
   )
 }
@@ -608,6 +616,99 @@ function PromocionesTab({ promociones, productos, onCrear, onToggle, onEliminar 
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function ModulosPremium({ enabled, onToggle }: { enabled: boolean; onToggle: (pin: string) => Promise<boolean> }) {
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState('')
+
+  const modulos = [
+    { nombre: 'Dashboard', desc: 'Graficas, KPIs y resumen general', premium: true },
+    { nombre: 'Tickets / Pedidos', desc: 'Gestion de pedidos por mesa', premium: true },
+    { nombre: 'Ventas', desc: 'Control de ventas y cuentas', premium: true },
+    { nombre: 'Promociones', desc: 'Promos tipo 2x1, combos', premium: true },
+    { nombre: 'Liquidacion', desc: 'Liquidacion diaria por trabajador', premium: false },
+    { nombre: 'Liq. Semana', desc: 'Resumen semanal consolidado', premium: false },
+    { nombre: 'Billar', desc: 'Mesas de billar, partidas y cobros', premium: false },
+    { nombre: 'Inventario', desc: 'Control de inventario semanal', premium: false },
+    { nombre: 'Comparativo', desc: 'Conteo fisico vs tiquets', premium: false },
+    { nombre: 'Dias de Apertura', desc: 'Calendario de apertura mensual', premium: false },
+    { nombre: 'Productos', desc: 'Catalogo de productos y precios', premium: false },
+  ]
+
+  const handleSubmit = async () => {
+    if (await onToggle(pin)) {
+      setPin('')
+      setError('')
+    } else {
+      setError('PIN incorrecto')
+      setTimeout(() => setError(''), 2000)
+    }
+  }
+
+  return (
+    <div className="max-w-lg">
+      <Card className="mb-4 border-[#CDA52F]/15">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-[#CDA52F]/15 flex items-center justify-center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#CDA52F"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="#CDA52F" strokeWidth="2"/></svg>
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">Modulos Premium</p>
+            <p className="text-[11px] text-white/30">Desbloquea funcionalidades avanzadas</p>
+          </div>
+          <span className={`ml-auto text-[10px] font-bold px-2.5 py-1 rounded-full ${enabled ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-white/5 text-white/30'}`}>
+            {enabled ? 'ACTIVO' : 'BLOQUEADO'}
+          </span>
+        </div>
+
+        <div className="flex gap-2">
+          <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN de activacion"
+            maxLength={4}
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#CDA52F]/50 text-center tracking-[0.5em]" />
+          <button onClick={handleSubmit}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${enabled ? 'bg-[#FF5050]/10 text-[#FF5050] border border-[#FF5050]/20 hover:bg-[#FF5050]/20' : 'bg-[#CDA52F] text-black hover:bg-[#CDA52F]/80'}`}>
+            {enabled ? 'Bloquear' : 'Activar'}
+          </button>
+        </div>
+        {error && <p className="text-xs text-[#FF5050] mt-2 text-center">{error}</p>}
+      </Card>
+
+      <div className="space-y-2">
+        {modulos.map(m => (
+          <div key={m.nombre} className={`flex items-center justify-between p-3 rounded-xl border ${m.premium ? (enabled ? 'border-[#4ECDC4]/20 bg-[#4ECDC4]/[0.03]' : 'border-white/5 bg-white/[0.02] opacity-50') : 'border-white/[0.07] bg-white/[0.02]'}`}>
+            <div className="flex items-center gap-3">
+              {m.premium ? (
+                enabled ? (
+                  <div className="w-7 h-7 rounded-lg bg-[#4ECDC4]/15 flex items-center justify-center">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="#4ECDC4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                  </div>
+                ) : (
+                  <div className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  </div>
+                )
+              ) : (
+                <div className="w-7 h-7 rounded-lg bg-[#CDA52F]/10 flex items-center justify-center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#CDA52F"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                </div>
+              )}
+              <div>
+                <p className="text-sm text-white/80">{m.nombre}</p>
+                <p className="text-[10px] text-white/25">{m.desc}</p>
+              </div>
+            </div>
+            {m.premium && (
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${enabled ? 'bg-[#4ECDC4]/10 text-[#4ECDC4]' : 'bg-[#CDA52F]/10 text-[#CDA52F]'}`}>
+                PREMIUM
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

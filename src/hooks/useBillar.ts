@@ -80,7 +80,7 @@ export function useBillar() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.message || 'Error al crear mesa')
     }
-    refetch()
+    await refetch()
     return res.json()
   }
 
@@ -91,13 +91,13 @@ export function useBillar() {
       body: JSON.stringify(data)
     })
     if (!res.ok) throw new Error('Error al actualizar mesa')
-    refetch()
+    await refetch()
   }
 
   const eliminarMesa = async (id: string) => {
     const res = await apiFetch(`${BASE}/mesas/${id}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('Error al eliminar mesa')
-    refetch()
+    await refetch()
   }
 
   const iniciarPartida = async (mesaId: string, nombreCliente: string, precioPorHora?: number) => {
@@ -110,7 +110,7 @@ export function useBillar() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.message || 'Error al iniciar partida')
     }
-    refetch()
+    await refetch()
     return res.json()
   }
 
@@ -120,7 +120,7 @@ export function useBillar() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.message || 'Error al finalizar partida')
     }
-    refetch()
+    await refetch()
     return res.json()
   }
 
@@ -134,7 +134,7 @@ export function useBillar() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.message || 'Error al trasladar partida')
     }
-    refetch()
+    await refetch()
     return res.json()
   }
 

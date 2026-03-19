@@ -29,8 +29,14 @@ export function useInventarios() {
         fecha: inventario.fecha,
         totalGeneral: inventario.totalGeneral,
         lineas: inventario.lineas.map(l => ({
-          ...l,
-          productoId: Number(l.productoId),
+          productoId: l.productoId,
+          nombre: l.nombre,
+          valorUnitario: l.valorUnitario,
+          invInicial: l.invInicial,
+          entradas: l.entradas,
+          invFisico: l.invFisico,
+          saldo: l.saldo,
+          total: l.total,
         })),
       }
       const res = await apiFetch(`${API_MANAGEMENT}/inventarios`, {

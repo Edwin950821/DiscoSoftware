@@ -1,14 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import Login from './components/Login'
-import Dashboard from './components/Dashboard'
-import Jornadas from './components/Jornadas'
+import DiasApertura from './components/Jornadas'
 import Configuracion from './components/Configuracion'
 import Productos from './components/Productos'
 import Liquidacion from './components/Liquidacion'
 import PedidosAdmin from './components/PedidosAdmin'
 import PedidosMesero from './components/PedidosMesero'
 import Ventas from './components/Ventas'
-import MesasBillar from './components/MesasBillar'
+const Dashboard = lazy(() => import('./components/Dashboard'))
+const MesasBillar = lazy(() => import('./components/MesasBillar'))
 import { Badge } from './components/ui/Badge'
 import { useProductos } from './hooks/useProductos'
 import { useTrabajadores } from './hooks/useTrabajadores'
@@ -47,11 +47,24 @@ function removeSession() {
   localStorage.removeItem('monastery_session')
 }
 
+const _PH = '6dba77308243555a9aa265b68f884ed5e51a46beb48d07fdf5fdba47f20e728a'
+async function verifyPin(pin: string): Promise<boolean> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin))
+  const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  return hash === _PH
+}
+
+function loadPremium(): boolean {
+  return localStorage.getItem('monastery_premium') === 'true'
+}
+
 export default function App() {
   const [initialSession] = useState(() => loadSession())
+  const [premiumEnabled, setPremiumEnabled] = useState(loadPremium)
   const [view, setView] = useState<View>(() => {
     if (!initialSession) return 'login'
-    return initialSession.rol === 'MESERO' ? 'pedidos' : 'dashboard'
+    if (initialSession.rol === 'MESERO') return 'pedidos'
+    return loadPremium() ? 'dashboard' : 'liquidacion'
   })
   const [rol, setRol] = useState<DiscoRol | null>(() => initialSession?.rol ?? null)
   const [nombre, setNombre] = useState(() => initialSession?.nombre ?? '')
@@ -116,7 +129,7 @@ export default function App() {
     saveSession({ accessToken: at, refreshToken: rt, rol: r, nombre: n, meseroId: mId })
     initSocket(at, mId) // Inicializar socket ANTES del re-render para que los hijos tengan acceso
     setAccessToken(at); setRefreshToken(rt); setRol(r); setNombre(n); setMeseroId(mId || '')
-    setView(r === 'MESERO' ? 'pedidos' : 'dashboard')
+    setView(r === 'MESERO' ? 'pedidos' : (loadPremium() ? 'dashboard' : 'liquidacion'))
   }
 
   const navigate = (v: View) => { setView(v); setMobileMenu(false) }
@@ -211,25 +224,22 @@ export default function App() {
             </div>
 
             <nav className="space-y-1 mb-5">
-              <MobileMenuItem label="Dashboard" active={view === 'dashboard'} onClick={() => navigate('dashboard')}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>} />
+              {premiumEnabled && <MobileMenuItem label="Dashboard" active={view === 'dashboard'} onClick={() => navigate('dashboard')}
+                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>} />}
               {isAdmin && (
                 <>
-                  <MobileMenuItem label="Tickets" active={view === 'pedidos'} onClick={() => navigate('pedidos')}
-                    icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>} />
-                  <MobileMenuItem label="Ventas" active={view === 'ventas'} onClick={() => navigate('ventas')}
-                    icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+                  {premiumEnabled && <>
+                    <MobileMenuItem label="Tickets" active={view === 'pedidos'} onClick={() => navigate('pedidos')}
+                      icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>} />
+                    <MobileMenuItem label="Ventas" active={view === 'ventas'} onClick={() => navigate('ventas')}
+                      icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+                  </>}
                   <MobileMenuItem label="Billar" active={view === 'billar'} onClick={() => navigate('billar')}
                     icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4.5"/><text x="12" y="14.5" textAnchor="middle" fontSize="7" fontWeight="bold" fill="currentColor" stroke="none">8</text></svg>} />
                   <MobileMenuItem label="Liquidacion" active={view === 'liquidacion'} onClick={() => navigate('liquidacion')}
                     icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} />
-                  <MobileMenuItem label="Jornadas" active={view === 'jornadas'} onClick={() => navigate('jornadas')} badge={jornadas.length > 0 ? jornadas.length : undefined}
+                  <MobileMenuItem label="Dias de Apertura" active={view === 'apertura'} onClick={() => navigate('apertura')}
                     icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} />
-                  <div className="h-px bg-white/[0.05] my-2" />
-                  <MobileMenuItem label="Inventario" active={view === 'inventario'} onClick={() => navigate('inventario')}
-                    icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V21H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>} />
-                  <MobileMenuItem label="Comparativo" active={view === 'comparativo'} onClick={() => navigate('comparativo')}
-                    icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>} />
                   <div className="h-px bg-white/[0.05] my-2" />
                   <MobileMenuItem label="Productos" active={view === 'productos'} onClick={() => navigate('productos')}
                     icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>} />
@@ -257,18 +267,16 @@ export default function App() {
           <p className="text-xs text-white/20 mt-1 font-mono">{reloj}</p>
         </div>
         <nav className="flex flex-col gap-1 flex-1">
-          <SidebarLink label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />
+          {premiumEnabled && <SidebarLink label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />}
           {isAdmin && (
             <>
-              <SidebarLink label="Tickets" active={view === 'pedidos'} onClick={() => setView('pedidos')} />
-              <SidebarLink label="Ventas" active={view === 'ventas'} onClick={() => setView('ventas')} />
+              {premiumEnabled && <>
+                <SidebarLink label="Tickets" active={view === 'pedidos'} onClick={() => setView('pedidos')} />
+                <SidebarLink label="Ventas" active={view === 'ventas'} onClick={() => setView('ventas')} />
+              </>}
               <SidebarLink label="Billar" active={view === 'billar'} onClick={() => setView('billar')} />
               <SidebarLink label="Liquidacion" active={view === 'liquidacion'} onClick={() => setView('liquidacion')} />
-              <SidebarLink label="Jornadas" active={view === 'jornadas'} onClick={() => setView('jornadas')}
-                badge={jornadas.length > 0 ? jornadas.length : undefined} />
-              <div className="h-px bg-white/[0.05] my-1" />
-              <SidebarLink label="Inventario" active={view === 'inventario'} onClick={() => setView('inventario')} />
-              <SidebarLink label="Comparativo" active={view === 'comparativo'} onClick={() => setView('comparativo')} />
+              <SidebarLink label="Dias de Apertura" active={view === 'apertura'} onClick={() => setView('apertura')} />
               <div className="h-px bg-white/[0.05] my-1" />
               <SidebarLink label="Productos" active={view === 'productos'} onClick={() => setView('productos')} />
               <SidebarLink label="Configuracion" active={view === 'configuracion'} onClick={() => setView('configuracion')} />
@@ -299,21 +307,23 @@ export default function App() {
 
 {isAdmin && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-t border-white/[0.07] flex justify-around items-center px-2 py-1.5 safe-bottom">
-          <BottomNavItem label="Home" active={view === 'dashboard'} onClick={() => setView('dashboard')}
-            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>} />
-          <BottomNavItem label="Tickets" active={view === 'pedidos'} onClick={() => setView('pedidos')}
-            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>} />
-          <BottomNavItem label="Ventas" active={view === 'ventas'} onClick={() => setView('ventas')}
-            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+          {premiumEnabled && <>
+            <BottomNavItem label="Home" active={view === 'dashboard'} onClick={() => setView('dashboard')}
+              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>} />
+            <BottomNavItem label="Tickets" active={view === 'pedidos'} onClick={() => setView('pedidos')}
+              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>} />
+            <BottomNavItem label="Ventas" active={view === 'ventas'} onClick={() => setView('ventas')}
+              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+          </>}
           <BottomNavItem label="Liquidar" active={view === 'liquidacion'} onClick={() => setView('liquidacion')}
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} />
-          <BottomNavItem label="Mas" active={['jornadas','inventario','comparativo','productos','configuracion','billar'].includes(view)} onClick={() => setMobileMenu(true)}
+          <BottomNavItem label="Mas" active={['apertura','productos','configuracion','billar'].includes(view)} onClick={() => setMobileMenu(true)}
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>} />
         </nav>
       )}
 
 <main className="flex-1 p-4 lg:p-6 pt-16 lg:pt-6 pb-20 lg:pb-6 overflow-auto">
-        {view === 'dashboard' && <Dashboard jornadas={jornadas} trabajadores={trabajadores} />}
+        {premiumEnabled && view === 'dashboard' && <Suspense fallback={<div className="flex items-center justify-center h-64 text-white/30 text-sm">Cargando...</div>}><Dashboard jornadas={jornadas} trabajadores={trabajadores} /></Suspense>}
         {isAdmin && view === 'liquidacion' && (
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
@@ -324,7 +334,7 @@ export default function App() {
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}
           />
         )}
-        {view === 'jornadas' && <Jornadas jornadas={jornadas} eliminar={eliminarJornada} />}
+        {view === 'apertura' && <DiasApertura />}
         {view === 'inventario' && (
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
@@ -347,13 +357,22 @@ export default function App() {
             initialTab="comparativo"
           />
         )}
-        {isAdmin && view === 'pedidos' && <PedidosAdmin />}
-        {isAdmin && view === 'ventas' && <Ventas />}
-        {isAdmin && view === 'billar' && <MesasBillar />}
+        {premiumEnabled && isAdmin && view === 'pedidos' && <PedidosAdmin />}
+        {premiumEnabled && isAdmin && view === 'ventas' && <Ventas />}
+        {isAdmin && view === 'billar' && <Suspense fallback={<div className="flex items-center justify-center h-64 text-white/30 text-sm">Cargando...</div>}><MesasBillar /></Suspense>}
         {view === 'productos' && <Productos productos={productos} agregar={agregarProd} actualizar={actualizarProd} eliminar={eliminarProd} />}
         {view === 'configuracion' && (
           <Configuracion accessToken={accessToken} trabajadores={trabajadores}
-            agregarTrabajador={agregarTrabajador} actualizarTrabajador={actualizarTrabajador} eliminarTrabajador={eliminarTrabajador} />
+            agregarTrabajador={agregarTrabajador} actualizarTrabajador={actualizarTrabajador} eliminarTrabajador={eliminarTrabajador}
+            premiumEnabled={premiumEnabled} onTogglePremium={async (pin: string) => {
+              if (await verifyPin(pin)) {
+                const next = !premiumEnabled
+                setPremiumEnabled(next)
+                localStorage.setItem('monastery_premium', String(next))
+                return true
+              }
+              return false
+            }} />
         )}
       </main>
     </div>

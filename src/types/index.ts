@@ -1,5 +1,5 @@
 export type DiscoRol = 'ADMINISTRADOR' | 'DUENO' | 'MESERO'
-export type View = 'login' | 'dashboard' | 'liquidacion' | 'jornadas' | 'inventario' | 'comparativo' | 'productos' | 'configuracion' | 'pedidos' | 'ventas' | 'billar'
+export type View = 'login' | 'dashboard' | 'liquidacion' | 'apertura' | 'inventario' | 'comparativo' | 'productos' | 'configuracion' | 'pedidos' | 'ventas' | 'billar'
 export type TipoPago = 'Datafono' | 'QR' | 'Nequi'
 
 export interface Producto {
@@ -28,6 +28,7 @@ export interface LineaVenta {
 
 export interface TransaccionPago {
   tipo: TipoPago
+  concepto: string
   monto: number
 }
 
@@ -78,6 +79,7 @@ export interface LineaInventario {
   productoId: string
   nombre: string
   valorUnitario: number
+  salidas: number
   invInicial: number
   entradas: number
   invFisico: number

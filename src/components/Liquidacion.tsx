@@ -75,7 +75,7 @@ function Chevron({ expanded }: { expanded: boolean }) {
   )
 }
 
-type Tab = 'liquidacion' | 'inventario' | 'comparativo'
+type Tab = 'liquidacion' | 'semana' | 'inventario' | 'comparativo'
 
 interface Props {
   jornadas: Jornada[]
@@ -112,7 +112,14 @@ export default function Liquidacion({
   }
   const [sesion, setSesion] = useState('')
   const [fechaLiq, setFechaLiq] = useState(new Date().toISOString().split('T')[0])
-  const [liquidaciones, setLiquidaciones] = useState<LiquidacionTrabajador[]>([])
+  const [liquidaciones, _setLiquidaciones] = useState<LiquidacionTrabajador[]>([])
+  const [liqHistory, setLiqHistory] = useState<LiquidacionTrabajador[][]>([])
+  const setLiquidaciones: typeof _setLiquidaciones = (val) => {
+    _setLiquidaciones(prev => {
+      setLiqHistory(h => [...h.slice(-30), prev])
+      return typeof val === 'function' ? val(prev) : val
+    })
+  }
   const [activeTrabajadorId, setActiveTrabajadorId] = useState<string | null>(null)
   const [guardandoLiq, setGuardandoLiq] = useState(false)
   const [nuevoTrabajador, setNuevoTrabajador] = useState('')
@@ -122,7 +129,14 @@ export default function Liquidacion({
 
   const [modoInv, setModoInv] = useState<'lista' | 'nuevo'>('lista')
   const [fechaInv, setFechaInv] = useState(new Date().toISOString().split('T')[0])
-  const [lineasInv, setLineasInv] = useState<LineaInventario[]>([])
+  const [lineasInv, _setLineasInv] = useState<LineaInventario[]>([])
+  const [invHistory, setInvHistory] = useState<LineaInventario[][]>([])
+  const setLineasInv: typeof _setLineasInv = (val) => {
+    _setLineasInv(prev => {
+      setInvHistory(h => [...h.slice(-30), prev])
+      return typeof val === 'function' ? val(prev) : val
+    })
+  }
   const [expandedInv, setExpandedInv] = useState<string | null>(null)
   const [confirmDeleteI, setConfirmDeleteI] = useState<string | null>(null)
   const [guardandoI, setGuardandoI] = useState(false)
@@ -135,6 +149,37 @@ export default function Liquidacion({
   const [confirmDeleteC, setConfirmDeleteC] = useState<string | null>(null)
   const [guardandoC, setGuardandoC] = useState(false)
 
+
+
+  const undoLiq = useCallback(() => {
+    setLiqHistory(h => {
+      if (h.length === 0) return h
+      const prev = h[h.length - 1]
+      _setLiquidaciones(prev)
+      return h.slice(0, -1)
+    })
+  }, [])
+
+  const undoInv = useCallback(() => {
+    setInvHistory(h => {
+      if (h.length === 0) return h
+      const prev = h[h.length - 1]
+      _setLineasInv(prev)
+      return h.slice(0, -1)
+    })
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault()
+        if (tab === 'liquidacion' && modoLiq === 'nueva') undoLiq()
+        else if (tab === 'inventario' && modoInv === 'nuevo') undoInv()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [tab, modoLiq, modoInv, undoLiq, undoInv])
 
   const fechasJornadas = new Set(jornadas.map(j => j.fecha))
   const fechaLiqDuplicada = fechasJornadas.has(fechaLiq)
@@ -200,12 +245,12 @@ export default function Liquidacion({
 
   const addTransaccion = (trabajadorId: string, tipo: TipoPago) => {
     updateLiquidacion(trabajadorId, liq => ({
-      ...liq, transacciones: [...liq.transacciones, { tipo, monto: 0 }],
+      ...liq, transacciones: [...liq.transacciones, { tipo, concepto: '', monto: 0 }],
     }))
   }
-  const updateTransaccion = (trabajadorId: string, idx: number, monto: number) => {
+  const updateTransaccion = (trabajadorId: string, idx: number, field: 'concepto' | 'monto', value: string | number) => {
     updateLiquidacion(trabajadorId, liq => ({
-      ...liq, transacciones: liq.transacciones.map((t, i) => i === idx ? { ...t, monto } : t),
+      ...liq, transacciones: liq.transacciones.map((t, i) => i === idx ? { ...t, [field]: value } : t),
     }))
   }
   const removeTransaccion = (trabajadorId: string, idx: number) => {
@@ -267,7 +312,12 @@ export default function Liquidacion({
     if (!formValidoLiq || guardandoLiq) return
     setGuardandoLiq(true)
     try {
-      await guardarJornada({ sesion, fecha: fechaLiq, liquidaciones })
+
+      const liqsConEfectivo = liquidaciones.map(liq => {
+        const c = calcularLiquidacion(liq)
+        return { ...liq, efectivoEntregado: c.efectivo }
+      })
+      await guardarJornada({ sesion, fecha: fechaLiq, liquidaciones: liqsConEfectivo })
       setGuardandoLiq(false)
       setModalExito('Liquidacion guardada correctamente')
       setTimeout(() => {
@@ -302,8 +352,8 @@ export default function Liquidacion({
     return activos.map(p => {
       const ant = ultimo?.lineas.find(l => l.productoId === p.id)
       const invInicial = ant?.invFisico ?? 0
-      const saldo = Math.abs(invInicial)
-      return { productoId: p.id, nombre: p.nombre, valorUnitario: p.precio, invInicial, entradas: 0, invFisico: 0, saldo, total: saldo * p.precio }
+      const saldo = invInicial
+      return { productoId: p.id, nombre: p.nombre, valorUnitario: p.precio, salidas: 0, invInicial, entradas: 0, invFisico: 0, saldo, total: saldo * p.precio }
     }).sort((a, b) => b.valorUnitario - a.valorUnitario)
   }
 
@@ -313,14 +363,23 @@ export default function Liquidacion({
     if (modoInv === 'nuevo' && lineasInv.length === 0 && productos.length > 0) setLineasInv(generarLineasInv())
   }, [modoInv, productos, lineasInv.length])
 
-  const actualizarLineaInv = (idx: number, campo: 'invInicial' | 'entradas' | 'invFisico', valor: string) => {
+  const actualizarLineaInv = (idx: number, campo: 'salidas' | 'invInicial' | 'entradas' | 'invFisico', valor: string) => {
     setLineasInv(prev => prev.map((l, i) => {
       if (i !== idx) return l
       const updated = { ...l, [campo]: Number(valor) || 0 }
-      const disponible = updated.invInicial + updated.entradas
-      updated.saldo = Math.abs(disponible - updated.invFisico)
+
+      updated.saldo = (updated.invInicial + updated.entradas) - updated.invFisico - updated.salidas
       updated.total = updated.saldo * updated.valorUnitario
       return updated
+    }))
+  }
+
+  const reordenarLineasInv = (campo: string, dir: 'asc' | 'desc') => {
+    setLineasInv(prev => [...prev].sort((a, b) => {
+      const va = (a as any)[campo] ?? ''
+      const vb = (b as any)[campo] ?? ''
+      if (typeof va === 'string') return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va)
+      return dir === 'asc' ? va - vb : vb - va
     }))
   }
 
@@ -346,7 +405,10 @@ export default function Liquidacion({
   const generarLineasComp = () => {
     const activos = productos.filter(p => p.activo)
     if (activos.length === 0) return []
-    return activos.map(p => ({ productoId: p.id, nombre: p.nombre, conteo: 0, tiquets: 0, diferencia: 0 })).sort((a, b) => a.nombre.localeCompare(b.nombre))
+
+    return activos.map(p => ({
+      productoId: p.id, nombre: p.nombre, conteo: 0, tiquets: 0, diferencia: 0
+    })).sort((a, b) => a.nombre.localeCompare(b.nombre))
   }
 
   const crearNuevoComp = () => { setLineasComp(generarLineasComp()); setFechaComp(new Date().toISOString().split('T')[0]); setModoComp('nuevo') }
@@ -378,6 +440,7 @@ export default function Liquidacion({
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'liquidacion', label: 'Liquidacion' },
+    { key: 'semana', label: 'Liq. Semana' },
     { key: 'inventario', label: 'Inventario' },
     { key: 'comparativo', label: 'Comparativo' },
   ]
@@ -410,7 +473,10 @@ export default function Liquidacion({
             updateEfectivoEntregado={updateEfectivoEntregado} updateTotalVentaManual={updateTotalVentaManual}
             updateLineaCantidad={updateLineaCantidad}
             updateTransaccion={updateTransaccion}
-            updateVale={updateVale} updateCortesia={updateCortesia} updateGasto={updateGasto}
+            addTransaccion={addTransaccion} removeTransaccion={removeTransaccion}
+            updateVale={updateVale} addVale={addVale} removeVale={removeVale}
+            updateCortesia={updateCortesia} addCortesia={addCortesia} removeCortesia={removeCortesia}
+            updateGasto={updateGasto} addGasto={addGasto} removeGasto={removeGasto}
             updateLiqDirect={(tid: string, data: Partial<LiquidacionTrabajador>) => {
               setLiquidaciones(prev => prev.map(l => l.trabajadorId !== tid ? l : { ...l, ...data }))
             }}
@@ -424,10 +490,12 @@ export default function Liquidacion({
         )
       )}
 
+      {tab === 'semana' && <LiquidacionSemana jornadas={jornadas} inventarios={inventarios} />}
+
       {tab === 'inventario' && (
         modoInv === 'nuevo' ? (
           <InventarioNuevo fecha={fechaInv} setFecha={setFechaInv} lineas={lineasInv} totalGeneral={totalGeneralInv}
-            actualizarLinea={actualizarLineaInv} guardando={guardandoI} fechaDuplicada={fechaInvDuplicada}
+            actualizarLinea={actualizarLineaInv} reordenarLineas={reordenarLineasInv} guardando={guardandoI} fechaDuplicada={fechaInvDuplicada}
             handleGuardar={handleGuardarInv} onBack={() => setModoInv('lista')} />
         ) : (
           <InventarioLista inventarios={inventarios} expandedId={expandedInv} setExpandedId={setExpandedInv}
@@ -527,21 +595,21 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                               <span className="text-xs text-white/70 flex-1">{liq.nombre}</span>
                               <span className="text-xs text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span>
                             </div>
-                            <div className="flex flex-wrap gap-1 ml-9">
+                            <div className="flex flex-wrap gap-1.5 ml-9">
                               {liq.efectivoEntregado > 0 && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#CDA52F22', color: '#CDA52F' }}>
-                                  Efectivo: {fmtCOP(liq.efectivoEntregado)}
+                                <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#CDA52F22', color: '#CDA52F' }}>
+                                  Efectivo: {fmtFull(liq.efectivoEntregado)}
                                 </span>
                               )}
-                              {c.totalDatafono > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#A8E6CF22', color: '#A8E6CF' }}>Datafono: {fmtCOP(c.totalDatafono)}</span>}
-                              {c.totalQR > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#4ECDC422', color: '#4ECDC4' }}>QR: {fmtCOP(c.totalQR)}</span>}
-                              {c.totalNequi > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#FFE66D22', color: '#FFE66D' }}>Nequi: {fmtCOP(c.totalNequi)}</span>}
-                              {c.totalVales > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#C3B1E122', color: '#C3B1E1' }}>Vales: {fmtCOP(c.totalVales)}</span>}
-                              {c.totalCortesias > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-white/40">Cort: {fmtCOP(c.totalCortesias)}</span>}
-                              {c.totalGastos > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-white/40">Gast: {fmtCOP(c.totalGastos)}</span>}
+                              {c.totalDatafono > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#A8E6CF22', color: '#A8E6CF' }}>Datafono: {fmtFull(c.totalDatafono)}</span>}
+                              {c.totalQR > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#4ECDC422', color: '#4ECDC4' }}>QR: {fmtFull(c.totalQR)}</span>}
+                              {c.totalNequi > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#FFE66D22', color: '#FFE66D' }}>Nequi: {fmtFull(c.totalNequi)}</span>}
+                              {c.totalVales > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#C3B1E122', color: '#C3B1E1' }}>Vales: {fmtFull(c.totalVales)}</span>}
+                              {c.totalCortesias > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Cort: {fmtFull(c.totalCortesias)}</span>}
+                              {c.totalGastos > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Gast: {fmtFull(c.totalGastos)}</span>}
                             </div>
-                            <div className="ml-9 mt-1 flex justify-between text-[10px]">
-                              <span className="text-white/30">Saldo: <span className={c.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}>{fmtFull(c.saldo)}</span></span>
+                            <div className="ml-9 mt-1.5 flex justify-between text-xs">
+                              <span className="text-white/30 font-medium">Saldo: <span className={`font-bold ${c.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(c.saldo)}</span></span>
                             </div>
                           </div>
                         )
@@ -588,7 +656,10 @@ function LiquidacionNueva({
   setSesion, setFecha, handleTabClick,
   updateEfectivoEntregado, updateTotalVentaManual,
   updateLineaCantidad,
-  updateTransaccion, updateVale, updateCortesia, updateGasto,
+  updateTransaccion, addTransaccion, removeTransaccion,
+  updateVale, addVale, removeVale,
+  updateCortesia, addCortesia, removeCortesia,
+  updateGasto, addGasto, removeGasto,
   updateLiqDirect,
   handleGuardar, onBack,
 }: {
@@ -602,16 +673,24 @@ function LiquidacionNueva({
   updateEfectivoEntregado: (tid: string, val: number) => void
   updateTotalVentaManual: (tid: string, total: number) => void
   updateLineaCantidad: (tid: string, productoId: string, cantidad: number) => void
-  updateTransaccion: (tid: string, idx: number, monto: number) => void
+  updateTransaccion: (tid: string, idx: number, field: 'concepto' | 'monto', value: string | number) => void
+  addTransaccion: (tid: string, tipo: TipoPago) => void
+  removeTransaccion: (tid: string, idx: number) => void
   updateVale: (tid: string, idx: number, field: 'tercero' | 'monto', value: string | number) => void
+  addVale: (tid: string) => void
+  removeVale: (tid: string, idx: number) => void
   updateCortesia: (tid: string, idx: number, field: 'concepto' | 'monto', value: string | number) => void
+  addCortesia: (tid: string) => void
+  removeCortesia: (tid: string, idx: number) => void
   updateGasto: (tid: string, idx: number, field: 'concepto' | 'monto', value: string | number) => void
+  addGasto: (tid: string) => void
+  removeGasto: (tid: string, idx: number) => void
   updateLiqDirect: (tid: string, data: Partial<LiquidacionTrabajador>) => void
   handleGuardar: () => void; onBack: () => void
 }) {
   const activeLiq = liquidaciones.find(l => l.trabajadorId === activeTrabajadorId)
 
-  // Fetch pedidos/cuentas del dia para ver tickets del trabajador
+
   const [pedidosHoy, setPedidosHoy] = useState<Pedido[]>([])
   const [cuentasHoy, setCuentasHoy] = useState<CuentaMesa[]>([])
   const [ticketsExpanded, setTicketsExpanded] = useState(true)
@@ -652,7 +731,7 @@ function LiquidacionNueva({
 
   const totalTicketsTrabajador = useMemo(() => pedidosTrabajador.reduce((s, p) => s + p.total, 0), [pedidosTrabajador])
 
-  // Reset expandedTicket when switching workers
+
   useEffect(() => { setExpandedTicket(null) }, [activeTrabajadorId])
 
   return (
@@ -847,7 +926,6 @@ function LiquidacionNueva({
                       )
                     })}
 
-                    {/* Pedidos sueltos (sin cuenta asociada) */}
                     {(() => {
                       const pedidosSinCuenta = pedidosTrabajador.filter(p =>
                         !cuentasTrabajador.some(c => c.pedidos.some(cp => cp.id === p.id))
@@ -912,7 +990,7 @@ function LiquidacionNueva({
                   </thead>
                   <tbody>
                     {activeLiq.lineas.map(l => (
-                      <tr key={l.productoId} className="border-b border-white/5 hover:bg-white/[0.02]">
+                      <tr key={`${l.productoId}-${l.nombre}`} className="border-b border-white/5 hover:bg-white/[0.02]">
                         <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
                         <td className="py-2 px-1 text-center text-xs text-white/45">{fmtCOP(l.precioUnitario)}</td>
                         <td className="py-1 px-1">
@@ -942,53 +1020,144 @@ function LiquidacionNueva({
               </div>
             </Card>
 
+            {(() => {
+              const totalVenta = activeLiq.lineas.reduce((s, l) => s + l.total, 0) || activeLiq.totalVenta
+              const esBarra = activeLiq.nombre.toLowerCase() === 'barra'
+              return (
+                <>
+                  <Card className="mb-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#CDA52F' }}>Efectivo s/n Liquidacion</span>
+                      <span className="text-lg font-bold" style={{ color: '#CDA52F' }}>{fmtFull(totalVenta)}</span>
+                    </div>
+                  </Card>
+                  {esBarra && (
+                    <Card className="mb-4">
+                      <div className="flex justify-between items-center gap-4">
+                        <span className="text-xs font-medium uppercase tracking-wider text-white/60 shrink-0">Efectivo Entregado</span>
+                        <MoneyInput value={activeLiq.efectivoEntregado}
+                          onChange={v => updateEfectivoEntregado(activeLiq.trabajadorId, v)} placeholder="$0" />
+                      </div>
+                    </Card>
+                  )}
+                </>
+              )
+            })()}
+
+            {TIPOS_PAGO.map(tipo => {
+              const entries = activeLiq.transacciones.map((t, idx) => ({ ...t, idx })).filter(t => t.tipo === tipo)
+              const totalTipo = entries.reduce((s, t) => s + t.monto, 0)
+              const color = COLORES_PAGO[tipo] || '#4ECDC4'
+              return (
+                <Card key={tipo} className="mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-medium uppercase tracking-wider" style={{ color }}>{tipo}</p>
+                    <button onClick={() => addTransaccion(activeLiq.trabajadorId, tipo)}
+                      className="text-xs px-2 py-1 rounded hover:opacity-80 transition"
+                      style={{ backgroundColor: color + '15', color }}>+ Agregar</button>
+                  </div>
+                  {entries.length === 0 && <p className="text-xs text-white/20 text-center py-2">Sin {tipo.toLowerCase()}</p>}
+                  <div className="space-y-2">
+                    {entries.map(t => (
+                      <div key={t.idx} className="flex items-center gap-2">
+                        <input value={t.concepto || ''} onChange={e => updateTransaccion(activeLiq.trabajadorId, t.idx, 'concepto', e.target.value)}
+                          placeholder="Concepto"
+                          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-white/30 w-32" />
+                        <MoneyInput value={t.monto} onChange={v => updateTransaccion(activeLiq.trabajadorId, t.idx, 'monto', v)} placeholder="$0" />
+                        <button onClick={() => removeTransaccion(activeLiq.trabajadorId, t.idx)}
+                          className="text-[#FF5050]/60 hover:text-[#FF5050] text-lg leading-none shrink-0">&times;</button>
+                      </div>
+                    ))}
+                  </div>
+                  {entries.length > 0 && (
+                    <div className="border-t border-white/10 mt-2 pt-2 flex justify-between text-sm">
+                      <span className="text-white/45">Total {tipo}</span>
+                      <span className="font-bold" style={{ color }}>{fmtFull(totalTipo)}</span>
+                    </div>
+                  )}
+                </Card>
+              )
+            })}
+
             <Card className="mb-4">
-              <MoneyInput label="Efectivo Entregado" value={activeLiq.efectivoEntregado}
-                onChange={v => updateEfectivoEntregado(activeLiq.trabajadorId, v)} />
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium uppercase tracking-wider" style={{ color: '#C3B1E1' }}>Vales</p>
+                <button onClick={() => addVale(activeLiq.trabajadorId)}
+                  className="text-xs px-2 py-1 rounded bg-[#C3B1E1]/10 text-[#C3B1E1] hover:bg-[#C3B1E1]/20 transition">+ Agregar</button>
+              </div>
+              {activeLiq.vales.length === 0 && <p className="text-xs text-white/20 text-center py-2">Sin vales</p>}
+              <div className="space-y-2">
+                {activeLiq.vales.map((v, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input value={v.tercero} onChange={e => updateVale(activeLiq.trabajadorId, i, 'tercero', e.target.value)}
+                      placeholder="Nombre 3ero"
+                      className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#C3B1E1]/50 w-32" />
+                    <MoneyInput value={v.monto} onChange={val => updateVale(activeLiq.trabajadorId, i, 'monto', val)} placeholder="$0" />
+                    <button onClick={() => removeVale(activeLiq.trabajadorId, i)}
+                      className="text-[#FF5050]/60 hover:text-[#FF5050] text-lg leading-none shrink-0">&times;</button>
+                  </div>
+                ))}
+              </div>
+              {activeLiq.vales.length > 0 && (
+                <div className="border-t border-white/10 mt-2 pt-2 flex justify-between text-sm">
+                  <span className="text-white/45">Total Vales</span>
+                  <span className="text-[#C3B1E1] font-bold">{fmtFull(activeLiq.vales.reduce((s, v) => s + v.monto, 0))}</span>
+                </div>
+              )}
             </Card>
 
             <Card className="mb-4">
-              <p className="text-xs font-medium mb-3 uppercase tracking-wider" style={{ color: '#4ECDC4' }}>Total de Transferencias <span className="text-white/30 normal-case">(Datafono, QR, Nequi)</span></p>
-              {(() => {
-                const totalTransferencias = activeLiq.transacciones.reduce((s, t) => s + t.monto, 0)
-                return (
-                  <MoneyInput value={totalTransferencias}
-                    onChange={v => {
-                      updateLiqDirect(activeLiq.trabajadorId, { transacciones: [{ tipo: 'Datafono' as TipoPago, monto: v }] })
-                    }}
-                    placeholder="$0" className="" />
-                )
-              })()}
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-white/40">Cortesias</p>
+                <button onClick={() => addCortesia(activeLiq.trabajadorId)}
+                  className="text-xs px-2 py-1 rounded bg-white/5 text-white/40 hover:bg-white/10 transition">+ Agregar</button>
+              </div>
+              {activeLiq.cortesias.length === 0 && <p className="text-xs text-white/20 text-center py-2">Sin cortesias</p>}
+              <div className="space-y-2">
+                {activeLiq.cortesias.map((c, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input value={c.concepto} onChange={e => updateCortesia(activeLiq.trabajadorId, i, 'concepto', e.target.value)}
+                      placeholder="Concepto"
+                      className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-white/30 w-32" />
+                    <MoneyInput value={c.monto} onChange={val => updateCortesia(activeLiq.trabajadorId, i, 'monto', val)} placeholder="$0" />
+                    <button onClick={() => removeCortesia(activeLiq.trabajadorId, i)}
+                      className="text-[#FF5050]/60 hover:text-[#FF5050] text-lg leading-none shrink-0">&times;</button>
+                  </div>
+                ))}
+              </div>
+              {activeLiq.cortesias.length > 0 && (
+                <div className="border-t border-white/10 mt-2 pt-2 flex justify-between text-sm">
+                  <span className="text-white/45">Total Cortesias</span>
+                  <span className="text-white/60 font-bold">{fmtFull(activeLiq.cortesias.reduce((s, c) => s + c.monto, 0))}</span>
+                </div>
+              )}
             </Card>
 
             <Card className="mb-4">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider" style={{ color: '#C3B1E1' }}>Vales</p>
-              <MoneyInput value={activeLiq.vales.length > 0 ? activeLiq.vales.reduce((s, v) => s + v.monto, 0) : 0}
-                onChange={v => {
-                  if (activeLiq.vales.length > 0) { updateVale(activeLiq.trabajadorId, 0, 'monto', v) }
-                  else { updateLiqDirect(activeLiq.trabajadorId, { vales: [{ tercero: 'Vales', monto: v }] }) }
-                }}
-                placeholder="$0" className="" />
-            </Card>
-
-            <Card className="mb-4">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cortesias</p>
-              <MoneyInput value={activeLiq.cortesias.length > 0 ? activeLiq.cortesias.reduce((s, c) => s + c.monto, 0) : 0}
-                onChange={v => {
-                  if (activeLiq.cortesias.length > 0) { updateCortesia(activeLiq.trabajadorId, 0, 'monto', v) }
-                  else { updateLiqDirect(activeLiq.trabajadorId, { cortesias: [{ concepto: 'Cortesias', monto: v }] }) }
-                }}
-                placeholder="$0" className="" />
-            </Card>
-
-            <Card className="mb-4">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Gastos</p>
-              <MoneyInput value={activeLiq.gastos.length > 0 ? activeLiq.gastos.reduce((s, g) => s + g.monto, 0) : 0}
-                onChange={v => {
-                  if (activeLiq.gastos.length > 0) { updateGasto(activeLiq.trabajadorId, 0, 'monto', v) }
-                  else { updateLiqDirect(activeLiq.trabajadorId, { gastos: [{ concepto: 'Gastos', monto: v }] }) }
-                }}
-                placeholder="$0" className="" />
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-white/40">Gastos</p>
+                <button onClick={() => addGasto(activeLiq.trabajadorId)}
+                  className="text-xs px-2 py-1 rounded bg-white/5 text-white/40 hover:bg-white/10 transition">+ Agregar</button>
+              </div>
+              {activeLiq.gastos.length === 0 && <p className="text-xs text-white/20 text-center py-2">Sin gastos</p>}
+              <div className="space-y-2">
+                {activeLiq.gastos.map((g, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input value={g.concepto} onChange={e => updateGasto(activeLiq.trabajadorId, i, 'concepto', e.target.value)}
+                      placeholder="Concepto"
+                      className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-white/30 w-32" />
+                    <MoneyInput value={g.monto} onChange={val => updateGasto(activeLiq.trabajadorId, i, 'monto', val)} placeholder="$0" />
+                    <button onClick={() => removeGasto(activeLiq.trabajadorId, i)}
+                      className="text-[#FF5050]/60 hover:text-[#FF5050] text-lg leading-none shrink-0">&times;</button>
+                  </div>
+                ))}
+              </div>
+              {activeLiq.gastos.length > 0 && (
+                <div className="border-t border-white/10 mt-2 pt-2 flex justify-between text-sm">
+                  <span className="text-white/45">Total Gastos</span>
+                  <span className="text-white/60 font-bold">{fmtFull(activeLiq.gastos.reduce((s, g) => s + g.monto, 0))}</span>
+                </div>
+              )}
             </Card>
 
             {(() => {
@@ -998,21 +1167,16 @@ function LiquidacionNueva({
                   <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cuadre — {activeLiq.nombre}</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between"><span className="text-white/45">Total Venta</span><span className="text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span></div>
+                    {c.totalDatafono > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Datafono</span><span className="text-white/60">-{fmtFull(c.totalDatafono)}</span></div>}
+                    {c.totalQR > 0 && <div className="flex justify-between"><span className="text-white/45">(-) QR</span><span className="text-white/60">-{fmtFull(c.totalQR)}</span></div>}
+                    {c.totalNequi > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Nequi</span><span className="text-white/60">-{fmtFull(c.totalNequi)}</span></div>}
+                    {c.totalVales > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Vales</span><span className="text-white/60">-{fmtFull(c.totalVales)}</span></div>}
                     {c.totalCortesias > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Cortesias</span><span className="text-white/60">-{fmtFull(c.totalCortesias)}</span></div>}
                     {c.totalGastos > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Gastos</span><span className="text-white/60">-{fmtFull(c.totalGastos)}</span></div>}
                     <div className="border-t border-white/10 my-1" />
-                    <div className="flex justify-between"><span className="text-white/45">Esperado</span><span className="text-white font-bold">{fmtFull(c.esperado)}</span></div>
-                    <div className="border-t border-white/5 my-1" />
-                    {c.totalDatafono > 0 && <div className="flex justify-between text-xs"><span className="text-white/30">Datafono</span><span className="text-white/50">{fmtFull(c.totalDatafono)}</span></div>}
-                    {c.totalQR > 0 && <div className="flex justify-between text-xs"><span className="text-white/30">QR</span><span className="text-white/50">{fmtFull(c.totalQR)}</span></div>}
-                    {c.totalNequi > 0 && <div className="flex justify-between text-xs"><span className="text-white/30">Nequi</span><span className="text-white/50">{fmtFull(c.totalNequi)}</span></div>}
-                    {c.totalVales > 0 && <div className="flex justify-between text-xs"><span className="text-white/30">Vales</span><span className="text-white/50">{fmtFull(c.totalVales)}</span></div>}
-                    <div className="flex justify-between"><span className="text-white/45">Efectivo Entregado</span><span className="text-white/70">{fmtFull(activeLiq.efectivoEntregado)}</span></div>
-                    <div className="border-t border-white/10 my-1" />
-                    <div className="flex justify-between"><span className="text-white/45">Total Recibido</span><span className="text-[#4ECDC4] font-bold">{fmtFull(c.totalRecibido)}</span></div>
-                    <div className={`flex justify-between text-lg font-bold mt-1 px-3 py-2 rounded-lg ${c.saldo === 0 ? 'bg-[#4ECDC4]/10' : c.saldo > 0 ? 'bg-[#4ECDC4]/10' : 'bg-[#FF5050]/10'}`}>
-                      <span className={c.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}>SALDO</span>
-                      <span className={c.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}>{fmtFull(c.saldo)}</span>
+                    <div className={`flex justify-between text-lg font-bold mt-1 px-3 py-2 rounded-lg ${c.efectivo >= 0 ? 'bg-[#CDA52F]/10' : 'bg-[#FF5050]/10'}`}>
+                      <span className={c.efectivo >= 0 ? 'text-[#CDA52F]' : 'text-[#FF5050]'}>EFECTIVO</span>
+                      <span className={c.efectivo >= 0 ? 'text-[#CDA52F]' : 'text-[#FF5050]'}>{fmtFull(c.efectivo)}</span>
                     </div>
                   </div>
                 </Card>
@@ -1042,11 +1206,29 @@ function LiquidacionNueva({
 
 
 
-function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLinea, guardando, fechaDuplicada, handleGuardar, onBack }: {
+function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLinea, reordenarLineas, guardando, fechaDuplicada, handleGuardar, onBack }: {
   fecha: string; setFecha: (v: string) => void; lineas: LineaInventario[]; totalGeneral: number
-  actualizarLinea: (idx: number, campo: 'invInicial' | 'entradas' | 'invFisico', valor: string) => void
+  actualizarLinea: (idx: number, campo: 'salidas' | 'invInicial' | 'entradas' | 'invFisico', valor: string) => void
+  reordenarLineas: (campo: string, dir: 'asc' | 'desc') => void
   guardando: boolean; fechaDuplicada: boolean; handleGuardar: () => void; onBack: () => void
 }) {
+  const [sortCol, setSortCol] = useState<string>('nombre')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const handleSort = (campo: string) => {
+    const newDir = sortCol === campo && sortDir === 'asc' ? 'desc' : 'asc'
+    setSortCol(campo)
+    setSortDir(newDir)
+    reordenarLineas(campo, newDir)
+  }
+
+  const SortTh = ({ campo, label, className = '' }: { campo: string; label: string; className?: string }) => (
+    <th className={`text-xs font-medium py-2 px-1 cursor-pointer select-none hover:text-white/70 transition-colors ${className}`}
+      onClick={() => handleSort(campo)}>
+      {label} {sortCol === campo ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+    </th>
+  )
+
   return (
     <div>
       <BackButton onClick={onBack} title="Nuevo Inventario" />
@@ -1059,19 +1241,24 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/10">
-              <th className="text-left text-white/45 text-xs font-medium py-2 pr-2">Producto</th>
-              <th className="text-center text-white/45 text-xs font-medium py-2 px-1 w-24">Inv. Inicial</th>
-              <th className="text-center text-white/45 text-xs font-medium py-2 px-1 w-24">Entradas</th>
-              <th className="text-center text-white/45 text-xs font-medium py-2 px-1 w-24">Inv. Fisico</th>
-              <th className="text-center text-[#FFE66D]/70 text-xs font-medium py-2 px-1 w-20">Saldo</th>
-              <th className="text-right text-white/45 text-xs font-medium py-2 px-1 w-20">Val. Unit.</th>
-              <th className="text-right text-[#FFE66D]/70 text-xs font-medium py-2 pl-1 w-28">Total</th>
+              <SortTh campo="nombre" label="Articulos" className="text-left text-white/45 pr-2" />
+              <SortTh campo="salidas" label="Salidas" className="text-center text-white/45 w-20" />
+              <SortTh campo="invInicial" label="Inv. Inicial" className="text-center text-white/45 w-24" />
+              <SortTh campo="entradas" label="Entradas" className="text-center text-white/45 w-24" />
+              <SortTh campo="invFisico" label="Inv. Fisico" className="text-center text-white/45 w-24" />
+              <SortTh campo="saldo" label="Saldo" className="text-center text-[#FFE66D]/70 w-20" />
+              <SortTh campo="valorUnitario" label="Var Unitario" className="text-right text-white/45 w-24" />
+              <SortTh campo="total" label="Total" className="text-right text-[#FFE66D]/70 w-28" />
             </tr>
           </thead>
           <tbody>
             {lineas.map((l, idx) => (
-              <tr key={l.productoId} className="border-b border-white/5 hover:bg-white/[0.02]">
+              <tr key={`${l.productoId}-${l.nombre}`} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
+                <td className="py-1 px-1">
+                  <input type="number" min={0} value={l.salidas || ''} onChange={e => actualizarLinea(idx, 'salidas', e.target.value)}
+                    className="bg-white/5 border border-[#FF5050]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#FF5050]/50" />
+                </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.invInicial || ''} onChange={e => actualizarLinea(idx, 'invInicial', e.target.value)}
                     className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#CDA52F]/50" />
@@ -1092,7 +1279,7 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-white/10">
-              <td colSpan={6} className="py-3 text-right text-sm font-bold text-white/70">Total General:</td>
+              <td colSpan={7} className="py-3 text-right text-sm font-bold text-white/70">Total General:</td>
               <td className={`py-3 pl-1 text-right text-sm font-bold ${totalGeneral >= 0 ? 'text-[#FFE66D]' : 'text-[#FF5050]'}`}>{fmtFull(totalGeneral)}</td>
             </tr>
           </tfoot>
@@ -1145,19 +1332,21 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="border-b border-white/10">
-                            <th className="text-left text-white/45 py-1 pr-2">Producto</th>
-                            <th className="text-center text-white/45 py-1 px-1">Inv.I</th>
-                            <th className="text-center text-white/45 py-1 px-1">Entr.</th>
-                            <th className="text-center text-white/45 py-1 px-1">Inv.F</th>
+                            <th className="text-left text-white/45 py-1 pr-2">Articulos</th>
+                            <th className="text-center text-white/45 py-1 px-1">Salidas</th>
+                            <th className="text-center text-white/45 py-1 px-1">Inv. Inicial</th>
+                            <th className="text-center text-white/45 py-1 px-1">Entradas</th>
+                            <th className="text-center text-white/45 py-1 px-1">Inv. Fisico</th>
                             <th className="text-center text-white/45 py-1 px-1">Saldo</th>
-                            <th className="text-right text-white/45 py-1 px-1">V.U.</th>
+                            <th className="text-right text-white/45 py-1 px-1">Var Unitario</th>
                             <th className="text-right text-white/45 py-1 pl-1">Total</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {inv.lineas.filter(l => l.saldo !== 0 || l.entradas !== 0).map(l => (
-                            <tr key={l.productoId} className="border-b border-white/5">
+                          {inv.lineas.filter(l => l.saldo !== 0 || l.entradas !== 0 || (l.salidas && l.salidas !== 0)).map(l => (
+                            <tr key={`${l.productoId}-${l.nombre}`} className="border-b border-white/5">
                               <td className="py-1 pr-2 text-white/70">{l.nombre}</td>
+                              <td className="py-1 px-1 text-center text-[#FF5050]">{l.salidas || '-'}</td>
                               <td className="py-1 px-1 text-center text-white/50">{l.invInicial}</td>
                               <td className="py-1 px-1 text-center text-[#4ECDC4]">{l.entradas || '-'}</td>
                               <td className="py-1 px-1 text-center text-white/50">{l.invFisico}</td>
@@ -1169,7 +1358,7 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
                         </tbody>
                         <tfoot>
                           <tr className="border-t border-white/10">
-                            <td colSpan={6} className="py-2 text-right text-sm font-bold text-white/60">Total:</td>
+                            <td colSpan={7} className="py-2 text-right text-sm font-bold text-white/60">Total:</td>
                             <td className="py-2 pl-1 text-right text-sm font-bold text-[#FFE66D]">{fmtFull(inv.totalGeneral)}</td>
                           </tr>
                         </tfoot>
@@ -1225,7 +1414,7 @@ function ComparativoNuevo({ fecha, setFecha, lineas, totalConteo, totalTiquets, 
           </thead>
           <tbody>
             {lineas.map((l, idx) => (
-              <tr key={l.productoId} className="border-b border-white/5 hover:bg-white/[0.02]">
+              <tr key={`${l.productoId}-${l.nombre}`} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.conteo || ''} onChange={e => actualizarLinea(idx, 'conteo', e.target.value)}
@@ -1237,7 +1426,7 @@ function ComparativoNuevo({ fecha, setFecha, lineas, totalConteo, totalTiquets, 
                 </td>
                 <td className="py-2 px-1 text-center">
                   <span className={`inline-block min-w-[32px] px-2 py-0.5 rounded text-xs font-bold ${l.diferencia === 0 ? 'text-white/30' : l.diferencia > 0 ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-[#FF5050]/15 text-[#FF5050]'}`}>
-                    {l.diferencia !== 0 ? l.diferencia : '0'}
+                    {l.diferencia !== 0 ? Math.abs(l.diferencia) : '0'}
                   </span>
                 </td>
               </tr>
@@ -1314,14 +1503,14 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
                           </tr>
                         </thead>
                         <tbody>
-                          {c.lineas.filter(l => l.conteo > 0 || l.tiquets > 0).map(l => (
-                            <tr key={l.productoId} className="border-b border-white/5">
+                          {c.lineas.map(l => (
+                            <tr key={`${l.productoId}-${l.nombre}`} className="border-b border-white/5">
                               <td className="py-1 pr-2 text-white/70">{l.nombre}</td>
                               <td className="py-1 px-1 text-center text-white/50">{l.conteo}</td>
                               <td className="py-1 px-1 text-center text-[#4ECDC4]">{l.tiquets}</td>
                               <td className="py-1 px-1 text-center">
                                 <span className={`inline-block min-w-[28px] px-1.5 py-0.5 rounded text-xs font-bold ${l.diferencia === 0 ? 'text-white/30' : l.diferencia > 0 ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-[#FF5050]/15 text-[#FF5050]'}`}>
-                                  {l.diferencia}
+                                  {Math.abs(l.diferencia)}
                                 </span>
                               </td>
                             </tr>
@@ -1357,6 +1546,241 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
               </Card>
             )
           })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+
+function calcSemanaData(jornadasSem: Jornada[]) {
+  const tMap = new Map<string, { nombre: string; color: string; avatar: string; totales: number[] }>()
+  for (let i = 0; i < jornadasSem.length; i++) {
+    for (const liq of jornadasSem[i].liquidaciones || []) {
+      if (!tMap.has(liq.nombre)) tMap.set(liq.nombre, { nombre: liq.nombre, color: liq.color, avatar: liq.avatar, totales: new Array(jornadasSem.length).fill(0) })
+      tMap.get(liq.nombre)!.totales[i] = liq.lineas?.reduce((s, l) => s + l.total, 0) || liq.totalVenta || 0
+    }
+  }
+  const resumen = jornadasSem.map(j => { const c = calcularCuadreDia(j.liquidaciones || []); return { sesion: j.sesion, fecha: j.fecha, id: j.id, ventaTotal: c.totalVendido, gastos: c.totalGastos, datafono: c.pagos.Datafono, qr: c.pagos.QR, nequi: c.pagos.Nequi, vales: c.pagos.Vales, cortesias: c.totalCortesias, efectivo: c.pagos.Efectivo, totalRecibido: c.totalRecibido, saldo: c.saldo } })
+  const s = (k: string) => resumen.reduce((a, r) => a + ((r as any)[k] || 0), 0)
+  const tot = { ventaTotal: s('ventaTotal'), gastos: s('gastos'), datafono: s('datafono'), qr: s('qr'), nequi: s('nequi'), vales: s('vales'), cortesias: s('cortesias'), efectivo: s('efectivo'), totalRecibido: s('totalRecibido'), saldo: s('saldo') }
+  return { trabajadores: Array.from(tMap.values()), resumen, tot }
+}
+
+const FILAS_SEM: { key: string; label: string; color: string; bold?: boolean; isSaldo?: boolean }[] = [
+  { key: 'ventaTotal', label: 'Venta Total', color: '#FFE66D', bold: true },
+  { key: 'gastos', label: 'Gastos', color: '' },
+  { key: 'datafono', label: 'Datafono', color: '#A8E6CF' },
+  { key: 'qr', label: 'QR', color: '#4ECDC4' },
+  { key: 'nequi', label: 'Nequi', color: '#FFE66D' },
+  { key: 'vales', label: 'Vales', color: '#C3B1E1' },
+  { key: 'cortesias', label: 'Cortesias', color: '' },
+  { key: 'efectivo', label: 'Efectivo Entregado', color: '#CDA52F' },
+  { key: 'totalRecibido', label: 'Total', color: '#4ECDC4', bold: true },
+  { key: 'saldo', label: 'Saldo a Favor o en contra', color: '', isSaldo: true },
+]
+
+function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: InventarioType[] }) {
+  const [desde, setDesde] = useState('')
+  const [hasta, setHasta] = useState('')
+  const [semanaActiva, setSemanaActiva] = useState<number | null>(null)
+
+  const jornadasFiltradas = useMemo(() => {
+    if (!desde || !hasta) return []
+    return jornadas.filter(j => j.fecha >= desde && j.fecha <= hasta).sort((a, b) => a.fecha.localeCompare(b.fecha))
+  }, [jornadas, desde, hasta])
+
+  const fechasDisponibles = useMemo(() => {
+    const sorted = [...jornadas].sort((a, b) => a.fecha.localeCompare(b.fecha))
+    const grupos: Jornada[][] = []
+    let curr: Jornada[] = []
+    for (const j of sorted) {
+      if (curr.length > 0) {
+        const prev = new Date(curr[curr.length - 1].fecha + 'T12:00:00')
+        const cur = new Date(j.fecha + 'T12:00:00')
+        if ((cur.getTime() - prev.getTime()) / 86400000 > 2) { grupos.push(curr); curr = [] }
+      }
+      curr.push(j)
+    }
+    if (curr.length > 0) grupos.push(curr)
+    return grupos
+  }, [jornadas])
+
+  const jornadasVisibles = useMemo(() => {
+    if (semanaActiva === null || !fechasDisponibles[semanaActiva]) return jornadasFiltradas
+    const grupo = fechasDisponibles[semanaActiva]
+    const ids = new Set(grupo.map(j => j.id))
+    return jornadasFiltradas.filter(j => ids.has(j.id))
+  }, [jornadasFiltradas, semanaActiva, fechasDisponibles])
+
+  const d = useMemo(() => jornadasVisibles.length > 0 ? calcSemanaData(jornadasVisibles) : null, [jornadasVisibles])
+
+  const diasNombre = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
+
+  return (
+    <div>
+      <h3 className="text-sm font-bold text-white/60 uppercase tracking-wider mb-4">Liquidacion Semanal</h3>
+
+      <div className="flex items-end gap-4 mb-4">
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-white/30 uppercase">Desde</label>
+          <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#CDA52F]/50" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-white/30 uppercase">Hasta</label>
+          <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#CDA52F]/50" />
+        </div>
+        {desde && hasta && (
+          <span className="text-[10px] text-white/30 pb-2">{jornadasFiltradas.length} jornada{jornadasFiltradas.length !== 1 ? 's' : ''}</span>
+        )}
+      </div>
+
+      {desde && hasta && fechasDisponibles.filter(g => g[0].fecha <= hasta && g[g.length - 1].fecha >= desde).length > 0 && (
+        <div className="mb-6">
+          <p className="text-[10px] text-white/25 uppercase tracking-wider mb-2">Sesiones en el rango seleccionado</p>
+          <div className="flex flex-wrap gap-2">
+            {fechasDisponibles.map((grupo, gi) => {
+              const f0 = grupo[0].fecha
+              const fN = grupo[grupo.length - 1].fecha
+              if (!(f0 <= hasta && fN >= desde)) return null
+              const isActive = semanaActiva === gi
+              return (
+                <button key={gi} onClick={() => setSemanaActiva(isActive ? null : gi)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] transition-all ${isActive ? 'border-[#CDA52F] bg-[#CDA52F]/25 text-[#CDA52F] ring-1 ring-[#CDA52F]/40' : 'border-[#CDA52F]/50 bg-[#CDA52F]/10 text-[#CDA52F] hover:bg-[#CDA52F]/20'}`}>
+                  <span className="font-bold">S{gi + 1}</span>
+                  <span className="text-white/30">|</span>
+                  {grupo.map((j, ji) => {
+                    const dt = new Date(j.fecha + 'T12:00:00')
+                    return (
+                      <span key={ji} className="px-1 py-0.5 rounded text-[10px] text-[#CDA52F]">
+                        {diasNombre[dt.getDay()]} {dt.getDate()}
+                      </span>
+                    )
+                  })}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {!desde || !hasta ? (
+        <Card className="text-center py-12 text-white/30 text-sm">Selecciona un rango de fechas para ver la liquidacion semanal.</Card>
+      ) : jornadasVisibles.length === 0 ? (
+        <Card className="text-center py-12 text-white/30 text-sm">No hay jornadas en el rango seleccionado.</Card>
+      ) : d && (
+        <div className="space-y-4">
+          <Card className="border-[#CDA52F]/20">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr>
+                    <th className="text-center text-white/30 py-2 pr-4 font-bold border-b border-[#CDA52F]/20 text-[10px] uppercase tracking-wider">Meseros</th>
+                    {jornadasVisibles.map(j => (
+                      <th key={j.id} className="text-right text-white/50 py-2 px-3 font-medium border-b border-[#CDA52F]/20 min-w-[100px]">
+                        <div className="text-[11px] font-bold">{j.sesion}</div>
+                        <div className="text-[9px] text-white/25 font-normal">{j.fecha}</div>
+                      </th>
+                    ))}
+                    {jornadasVisibles.length > 1 && (
+                      <th className="text-center text-[#CDA52F] py-2 px-3 font-bold border-b border-[#CDA52F]/20 bg-white/[0.02]">LIQ. SEMANA</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.trabajadores.map(t => (
+                    <tr key={t.nombre} className="border-b border-white/[0.04]">
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: t.color + '33', color: t.color }}>{t.avatar}</div>
+                          <span className="text-white/60 font-medium">{t.nombre}</span>
+                        </div>
+                      </td>
+                      {t.totales.map((v, i) => (
+                        <td key={i} className="text-right text-white/50 py-2 px-3">{v > 0 ? fmtCOP(v) : '-'}</td>
+                      ))}
+                      {jornadasVisibles.length > 1 && (
+                        <td className="text-center font-bold text-white/80 py-2 px-3 bg-white/[0.02]">{fmtCOP(t.totales.reduce((a, v) => a + v, 0))}</td>
+                      )}
+                    </tr>
+                  ))}
+
+                  <tr className="border-t-2 border-[#FFE66D]/30">
+                    <td className="py-2.5 pr-4 font-bold text-[#FFE66D] text-sm">Venta Total</td>
+                    {d.resumen.map((r, i) => (
+                      <td key={i} className="text-right font-bold text-[#FFE66D] py-2.5 px-3">{fmtCOP(r.ventaTotal)}</td>
+                    ))}
+                    {jornadasVisibles.length > 1 && (
+                      <td className="text-center font-bold text-[#FFE66D] text-sm py-2.5 px-3 bg-white/[0.02]">{fmtCOP(d.tot.ventaTotal)}</td>
+                    )}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          <Card className="border-white/[0.07]">
+            <p className="text-[10px] text-white/30 uppercase tracking-wider font-bold mb-3">Medios de Pago & Deducciones</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr>
+                    <th className="text-left text-white/40 py-2 pr-4 font-medium border-b border-white/10"></th>
+                    {jornadasVisibles.map(j => (
+                      <th key={j.id} className="text-right text-white/40 py-2 px-3 font-medium border-b border-white/10 min-w-[100px]">{j.sesion}</th>
+                    ))}
+                    {jornadasVisibles.length > 1 && (
+                      <th className="text-center text-[#CDA52F] py-2 px-3 font-bold border-b border-white/10 bg-white/[0.02]">Total</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {FILAS_SEM.filter(f => f.key !== 'ventaTotal' && !f.isSaldo).map(f => {
+                    const vals = d.resumen.map(r => ((r as any)[f.key] as number) ?? 0)
+                    const total = ((d.tot as any)[f.key] as number) ?? 0
+                    const isTotal = f.key === 'totalRecibido'
+                    return (
+                      <tr key={f.key} className={`border-b border-white/[0.04] ${isTotal ? 'border-t-2 border-[#4ECDC4]/30' : ''}`}>
+                        <td className={`py-2 pr-4 ${isTotal ? 'font-bold text-white/70 text-sm' : 'text-white/40'}`}>{f.label}</td>
+                        {vals.map((v, i) => (
+                          <td key={i} className={`text-right py-2 px-3 ${isTotal ? 'font-bold' : ''}`} style={{ color: f.color || 'rgba(255,255,255,0.5)' }}>
+                            {fmtCOP(v)}
+                          </td>
+                        ))}
+                        {jornadasVisibles.length > 1 && (
+                          <td className={`text-center py-2 px-3 bg-white/[0.02] ${isTotal ? 'font-bold text-sm' : 'font-bold'}`} style={{ color: f.color || '#CDA52F' }}>
+                            {fmtCOP(total)}
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                  {(() => {
+                    const saldoVals = d.resumen.map(r => r.saldo)
+                    const saldoTotal = d.tot.saldo
+                    return (
+                      <tr className="border-t-2 border-white/20">
+                        <td className="py-3 pr-4 font-bold text-sm" style={{ color: saldoTotal >= 0 ? '#4ECDC4' : '#FF5050' }}>Saldo</td>
+                        {saldoVals.map((v, i) => (
+                          <td key={i} className="text-right py-3 px-3 font-bold" style={{ color: v >= 0 ? '#4ECDC4' : '#FF5050' }}>
+                            {fmtCOP(v)}
+                          </td>
+                        ))}
+                        {jornadasVisibles.length > 1 && (
+                          <td className="text-center py-3 px-3 font-bold text-sm bg-white/[0.02]" style={{ color: saldoTotal >= 0 ? '#4ECDC4' : '#FF5050' }}>
+                            {fmtCOP(saldoTotal)}
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         </div>
       )}
     </div>

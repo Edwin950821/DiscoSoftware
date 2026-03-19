@@ -30,7 +30,7 @@ export function useComparativos() {
         totalConteo: comparativo.totalConteo,
         totalTiquets: comparativo.totalTiquets,
         lineas: comparativo.lineas.map(l => ({
-          productoId: Number(l.productoId),
+          productoId: l.productoId,
           nombre: l.nombre,
           conteo: l.conteo,
           tiquets: l.tiquets,

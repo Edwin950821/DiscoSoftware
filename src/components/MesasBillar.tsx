@@ -1,7 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { Card } from './ui/Card'
 import { useBillar } from '../hooks/useBillar'
+import { apiFetch } from '../lib/config'
 import type { MesaBillar } from '../types'
+
+const API = import.meta.env.VITE_API_URL || '/api/disco'
 
 const fmtCOP = (n: number) => '$' + Number(n || 0).toLocaleString('es-CO')
 
@@ -26,8 +30,23 @@ export default function MesasBillar() {
   const [editNombre, setEditNombre] = useState('')
   const [editPrecio, setEditPrecio] = useState('')
   const [showTransfer, setShowTransfer] = useState<MesaBillar | null>(null)
+  const [showCerrarJornada, setShowCerrarJornada] = useState(false)
+  const [cerrandoJornada, setCerrandoJornada] = useState(false)
+  const [jornadaCerrada, setJornadaCerrada] = useState<any>(null)
 
   const mesasActivas = useMemo(() => mesas.filter(m => m.estado === 'EN_JUEGO'), [mesas])
+
+  const handleCerrarJornada = async () => {
+    setCerrandoJornada(true)
+    try {
+      const res = await apiFetch(`${API}/pedidos/jornada/cerrar`, { method: 'POST' })
+      if (!res.ok) throw new Error('Error al cerrar jornada')
+      const data = await res.json()
+      setJornadaCerrada(data)
+      setShowCerrarJornada(false)
+    } catch (e: any) { alert(e.message) }
+    setCerrandoJornada(false)
+  }
 
   const handleCrear = async () => {
     if (!newNombre.trim()) return
@@ -108,19 +127,28 @@ export default function MesasBillar() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
         <div>
-          <h2 className="text-xl font-bold">Mesas de Billar</h2>
-          <p className="text-xs text-white/30 mt-0.5">{new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <h2 className="text-base sm:text-xl font-bold">Mesas de Billar</h2>
+          <p className="text-[10px] text-white/30 mt-0.5">{new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
         </div>
-        <button onClick={() => setShowAddForm(true)}
-          className="px-4 py-2 rounded-xl bg-[#4ECDC4] text-black text-sm font-semibold hover:bg-[#4ECDC4]/80 transition-all flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Agregar Mesa
-        </button>
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {partidasFinalizadas.length > 0 && mesasActivas.length === 0 && (
+            <button onClick={() => setShowCerrarJornada(true)}
+              className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-[#FF6B35] text-white text-[10px] sm:text-sm font-semibold hover:bg-[#FF6B35]/80 transition-all flex items-center gap-1 sm:gap-2">
+              <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              Cerrar Jornada
+            </button>
+          )}
+          <button onClick={() => setShowAddForm(true)}
+            className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-[#4ECDC4] text-black text-[10px] sm:text-sm font-semibold hover:bg-[#4ECDC4]/80 transition-all flex items-center gap-1 sm:gap-2">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Agregar Mesa
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
         <KpiCard label="Mesas Totales" value={String(mesas.length)} color="#4ECDC4" icon={
           <svg width="30" height="30" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor" opacity="0.15"/><circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="12" r="5" fill="currentColor"/><text x="12" y="14.8" textAnchor="middle" fontSize="8" fontWeight="bold" fill="#141414">8</text></svg>
         } />
@@ -191,6 +219,8 @@ export default function MesasBillar() {
           )}
         </div>
       )}
+
+      {partidasFinalizadas.length > 0 && <BillarCharts partidas={partidasFinalizadas} total={totalBillarHoy} />}
 
       {showAddForm && (
         <Modal onClose={() => setShowAddForm(false)}>
@@ -403,6 +433,51 @@ export default function MesasBillar() {
           </div>
         </Modal>
       )}
+
+      {showCerrarJornada && (
+        <Modal onClose={() => setShowCerrarJornada(false)}>
+          <div className="text-center mb-5">
+            <div className="w-14 h-14 rounded-full bg-[#FF6B35]/10 flex items-center justify-center mx-auto mb-3">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </div>
+            <h3 className="text-lg font-bold">Cerrar Jornada</h3>
+            <p className="text-sm text-white/30 mt-1">Se contabilizaran todas las partidas del dia</p>
+          </div>
+          <div className="bg-white/5 rounded-xl p-4 mb-4 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-white/40">Partidas</span><span className="font-bold">{partidasFinalizadas.length}</span></div>
+            <div className="flex justify-between"><span className="text-white/40">Total Billar</span><span className="font-bold text-[#FFE66D]">{fmtCOP(totalBillarHoy)}</span></div>
+          </div>
+          <p className="text-[11px] text-white/25 text-center mb-4">La jornada cubre desde la apertura (ej: 12pm) hasta este momento, sin importar que haya pasado medianoche.</p>
+          <div className="flex gap-2">
+            <button onClick={() => setShowCerrarJornada(false)} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm text-white/60 hover:bg-white/5 transition-all">Cancelar</button>
+            <button onClick={handleCerrarJornada} disabled={cerrandoJornada}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-[#FF6B35] text-white text-sm font-semibold hover:bg-[#FF6B35]/80 transition-all disabled:opacity-40">
+              {cerrandoJornada ? 'Cerrando...' : 'Cerrar Jornada'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {jornadaCerrada && (
+        <Modal onClose={() => setJornadaCerrada(null)}>
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-full bg-[#4ECDC4]/10 flex items-center justify-center mx-auto mb-4">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="#4ECDC4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            </div>
+            <h3 className="text-lg font-bold mb-1">Jornada Cerrada</h3>
+            <p className="text-sm text-white/30 mb-4">{jornadaCerrada.fecha}</p>
+            <div className="bg-white/5 rounded-xl p-4 space-y-2 mb-5 text-sm">
+              {jornadaCerrada.totalVentas > 0 && <div className="flex justify-between"><span className="text-white/40">Ventas</span><span className="text-white/70">{fmtCOP(jornadaCerrada.totalVentas)}</span></div>}
+              <div className="flex justify-between"><span className="text-white/40">Billar</span><span className="text-white/70">{fmtCOP(jornadaCerrada.totalBillar)}</span></div>
+              <div className="flex justify-between"><span className="text-white/40">Partidas</span><span className="text-white/70">{jornadaCerrada.partidasBillar}</span></div>
+              <div className="h-px bg-white/[0.07]" />
+              <div className="flex justify-between font-bold"><span className="text-white/60">Total General</span><span className="text-[#FFE66D]">{fmtCOP(jornadaCerrada.totalGeneral)}</span></div>
+            </div>
+            <button onClick={() => setJornadaCerrada(null)}
+              className="w-full px-4 py-2.5 rounded-xl bg-white/10 text-sm text-white/70 hover:bg-white/15 transition-all">Cerrar</button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -558,6 +633,90 @@ function KpiCard({ label, value, color, icon }: { label: string; value: string; 
         <span className="text-[10px] text-white/30 uppercase tracking-wider block mb-1">{label}</span>
         <p className="text-lg font-extrabold text-white">{value}</p>
       </div>
+    </div>
+  )
+}
+
+const CHART_COLORS = ['#CDA52F', '#4ECDC4', '#FFE66D', '#FF6B35', '#C3B1E1', '#FF8FA3', '#A8E6CF', '#FFB347']
+
+function BillarCharts({ partidas, total }: { partidas: import('../types').PartidaBillar[]; total: number }) {
+  const ventaPorMesa = useMemo(() => {
+    const map = new Map<string, { nombre: string; total: number; partidas: number; horas: number }>()
+    for (const p of partidas) {
+      const key = p.mesaBillarNombre
+      const prev = map.get(key) || { nombre: key, total: 0, partidas: 0, horas: 0 }
+      prev.total += p.total || 0
+      prev.partidas += 1
+      prev.horas += p.horasCobradas || 0
+      map.set(key, prev)
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total)
+  }, [partidas])
+
+  const pieData = ventaPorMesa.filter(v => v.total > 0)
+
+  return (
+    <div className="mt-4 space-y-4">
+      <Card className="border-[#FFE66D]/20 bg-[#FFE66D]/[0.03]">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <span className="text-sm font-bold text-white/60">Total Billar Hoy</span>
+            <span className="text-[10px] text-white/25 ml-2">({partidas.length} partida{partidas.length !== 1 ? 's' : ''})</span>
+          </div>
+          <span className="text-xl font-extrabold text-[#FFE66D]">{fmtCOP(total)}</span>
+        </div>
+      </Card>
+
+      {pieData.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2">Distribucion por Mesa</p>
+            <div className="flex items-center gap-4">
+              <div className="w-[120px] h-[120px] shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} dataKey="total" nameKey="nombre" cx="50%" cy="50%" innerRadius={30} outerRadius={50} paddingAngle={3} strokeWidth={0} isAnimationActive={false}>
+                      {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex-1 space-y-1.5">
+                {pieData.map((v, i) => (
+                  <div key={v.nombre} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                      <span className="text-xs text-white/60">{v.nombre}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-white/80">{fmtCOP(v.total)}</span>
+                      <span className="text-[9px] text-white/25 ml-1">{v.partidas}p</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2">Venta por Mesa</p>
+            <div className="h-[120px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={ventaPorMesa} layout="vertical" margin={{ left: 0, right: 5, top: 0, bottom: 0 }}>
+                  <XAxis type="number" tickFormatter={v => fmtCOP(v)} tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 9 }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="nombre" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }} axisLine={false} tickLine={false} width={55} />
+                  <Tooltip contentStyle={{ backgroundColor: '#1A1A1A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 11 }}
+                    formatter={(value: any) => [fmtCOP(Number(value)), 'Total']}
+                    labelStyle={{ color: 'rgba(255,255,255,0.7)' }} />
+                  <Bar dataKey="total" radius={[0, 6, 6, 0]} maxBarSize={22} isAnimationActive={false}>
+                    {ventaPorMesa.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
