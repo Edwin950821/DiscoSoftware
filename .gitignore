@@ -4,3 +4,7 @@ tests
 CLAUDE.md
 .vite
 .env.local
+.env.production
+.env
+vite-env.d.ts
+dist/
