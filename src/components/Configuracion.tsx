@@ -3,7 +3,7 @@ import type { Trabajador, Promocion } from '../types'
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
-import { API_URL, apiFetch } from '../lib/config'
+import { db, hashPassword } from '../lib/db'
 import { usePromociones } from '../hooks/usePromociones'
 import { useProductos } from '../hooks/useProductos'
 
@@ -106,23 +106,28 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
     }
     setPwLoading(true)
     try {
-      const res = await apiFetch(`${API_URL}/change-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      })
-      if (res.ok) {
-        setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
-        setPwMsg(null)
-        setShowSuccessModal(true)
-      } else if (res.status === 403 || res.status === 401) {
-        setPwMsg({ text: 'Sesion expirada. Cierra sesion y vuelve a ingresar.', ok: false })
-      } else {
-        const data = await res.json().catch(() => null)
-        setPwMsg({ text: data?.message || 'Error al cambiar contrasena', ok: false })
+      // Get current user from session
+      const raw = sessionStorage.getItem('monastery_session') || localStorage.getItem('monastery_session')
+      if (!raw) { setPwMsg({ text: 'Sesion no encontrada', ok: false }); return }
+      const session = JSON.parse(raw)
+      const users = await db.users.toArray()
+      const user = users.find(u => u.nombre === session.nombre)
+      if (!user) { setPwMsg({ text: 'Usuario no encontrado', ok: false }); return }
+
+      // Verify current password
+      const currentHash = await hashPassword(currentPassword)
+      if (currentHash !== user.passwordHash) {
+        setPwMsg({ text: 'Contrasena actual incorrecta', ok: false }); return
       }
+
+      // Update password
+      const newHash = await hashPassword(newPassword)
+      await db.users.update(user.id!, { passwordHash: newHash })
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+      setPwMsg(null)
+      setShowSuccessModal(true)
     } catch {
-      setPwMsg({ text: 'No se pudo conectar al servidor', ok: false })
+      setPwMsg({ text: 'Error al cambiar contrasena', ok: false })
     } finally {
       setPwLoading(false)
     }

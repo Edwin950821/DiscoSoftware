@@ -1,141 +1,131 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { apiFetch } from '../lib/config'
-import { getSocket } from '../lib/socket'
+import { db, getHoy } from '../lib/db'
 import type { MesaBillar, PartidaBillar } from '../types'
-
-const API = import.meta.env.VITE_API_URL || '/api/disco'
-const BASE = `${API}/billar`
 
 export function useBillar() {
   const [mesas, setMesas] = useState<MesaBillar[]>([])
   const [partidas, setPartidas] = useState<PartidaBillar[]>([])
 
   const fetchMesas = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${BASE}/mesas`)
-      if (!res.ok) throw new Error('Error fetching mesas billar')
-      const data = await res.json()
-      setMesas(data.map((m: any) => ({ ...m, id: String(m.id) })))
-    } catch {}
+    const data = await db.mesasBillar.toArray()
+    const mapped = await Promise.all(data.map(async (m: any) => {
+      const mesaId = String(m.id)
+      const partidaActiva = await db.partidasBillar
+        .where('[mesaBillarId+estado]')
+        .equals([mesaId, 'EN_CURSO'])
+        .first()
+      return {
+        ...m,
+        id: mesaId,
+        estado: partidaActiva ? 'EN_JUEGO' : (m.activo ? 'LIBRE' : 'INACTIVA'),
+        partidaActiva: partidaActiva ? { ...partidaActiva, id: String(partidaActiva.id) } : undefined,
+      }
+    }))
+    setMesas(mapped as MesaBillar[])
   }, [])
 
   const fetchPartidas = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${BASE}/partidas/hoy`)
-      if (!res.ok) throw new Error('Error fetching partidas')
-      const data = await res.json()
-      setPartidas(data.map((p: any) => ({ ...p, id: String(p.id) })))
-    } catch {}
+    const hoy = getHoy()
+    const data = await db.partidasBillar.where('jornadaFecha').equals(hoy).toArray()
+    setPartidas(data.map((p: any) => ({ ...p, id: String(p.id) })))
   }, [])
 
-  const refetch = useCallback(() => {
-    fetchMesas()
-    fetchPartidas()
+  const refetch = useCallback(async () => {
+    await Promise.all([fetchMesas(), fetchPartidas()])
   }, [fetchMesas, fetchPartidas])
 
   useEffect(() => { refetch() }, [refetch])
 
-  useEffect(() => {
-    let cleanup: (() => void) | null = null
-    let retryId: ReturnType<typeof setInterval> | null = null
-
-    const register = () => {
-      const socket = getSocket()
-      if (!socket) return false
-
-      const handler = () => refetch()
-      socket.on('billar_mesa_creada', handler)
-      socket.on('billar_partida_iniciada', handler)
-      socket.on('billar_partida_finalizada', handler)
-      socket.on('billar_partida_trasladada', handler)
-
-      cleanup = () => {
-        socket.off('billar_mesa_creada', handler)
-        socket.off('billar_partida_iniciada', handler)
-        socket.off('billar_partida_finalizada', handler)
-        socket.off('billar_partida_trasladada', handler)
-      }
-      return true
-    }
-
-    if (!register()) {
-      retryId = setInterval(() => {
-        if (register() && retryId) { clearInterval(retryId); retryId = null }
-      }, 500)
-    }
-
-    return () => {
-      if (retryId) clearInterval(retryId)
-      if (cleanup) cleanup()
-    }
-  }, [refetch])
-
   const crearMesa = async (nombre: string, precioPorHora: number) => {
-    const res = await apiFetch(`${BASE}/mesas`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombre, precioPorHora })
+    const todas = await db.mesasBillar.toArray()
+    const maxNumero = todas.reduce((max: number, m: any) => Math.max(max, m.numero || 0), 0)
+    const id = await db.mesasBillar.add({
+      numero: maxNumero + 1,
+      nombre,
+      precioPorHora,
+      activo: true,
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.message || 'Error al crear mesa')
-    }
     await refetch()
-    return res.json()
+    return { id: String(id), nombre, precioPorHora }
   }
 
   const actualizarMesa = async (id: string, data: { nombre?: string; precioPorHora?: number; activo?: boolean }) => {
-    const res = await apiFetch(`${BASE}/mesas/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    })
-    if (!res.ok) throw new Error('Error al actualizar mesa')
+    await db.mesasBillar.update(Number(id), data)
     await refetch()
   }
 
   const eliminarMesa = async (id: string) => {
-    const res = await apiFetch(`${BASE}/mesas/${id}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('Error al eliminar mesa')
+    await db.mesasBillar.delete(Number(id))
     await refetch()
   }
 
   const iniciarPartida = async (mesaId: string, nombreCliente: string, precioPorHora?: number) => {
-    const res = await apiFetch(`${BASE}/mesas/${mesaId}/iniciar`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombreCliente, precioPorHora })
+    const mesa = await db.mesasBillar.get(Number(mesaId))
+    if (!mesa) throw new Error('Mesa no encontrada')
+
+    const hoy = getHoy()
+    const precio = precioPorHora ?? mesa.precioPorHora
+
+    const id = await db.partidasBillar.add({
+      mesaBillarId: mesaId,
+      mesaBillarNumero: mesa.numero,
+      mesaBillarNombre: mesa.nombre,
+      nombreCliente,
+      horaInicio: new Date().toISOString(),
+      precioPorHora: precio,
+      estado: 'EN_CURSO',
+      jornadaFecha: hoy,
+      creadoEn: new Date().toISOString(),
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.message || 'Error al iniciar partida')
-    }
+
     await refetch()
-    return res.json()
+    return { id: String(id) }
   }
 
   const finalizarPartida = async (mesaId: string) => {
-    const res = await apiFetch(`${BASE}/mesas/${mesaId}/finalizar`, { method: 'POST' })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.message || 'Error al finalizar partida')
-    }
+    const partida = await db.partidasBillar
+      .where('[mesaBillarId+estado]')
+      .equals([mesaId, 'EN_CURSO'])
+      .first()
+    if (!partida) throw new Error('No hay partida activa')
+
+    const horaFin = new Date()
+    const horaInicio = new Date(partida.horaInicio)
+    const diffMs = horaFin.getTime() - horaInicio.getTime()
+    const minutosCobrados = Math.max(1, Math.ceil(diffMs / (1000 * 60)))
+    const precioPorMinuto = partida.precioPorHora / 60
+    const total = Math.round(minutosCobrados * precioPorMinuto)
+    const horasCobradas = minutosCobrados
+
+    await db.partidasBillar.update(partida.id, {
+      horaFin: horaFin.toISOString(),
+      horasCobradas,
+      total,
+      estado: 'FINALIZADA',
+    })
+
     await refetch()
-    return res.json()
+    return { ...partida, horaFin: horaFin.toISOString(), horasCobradas, total, estado: 'FINALIZADA', id: String(partida.id) }
   }
 
   const trasladarPartida = async (mesaOrigenId: string, mesaDestinoId: string) => {
-    const res = await apiFetch(`${BASE}/mesas/${mesaOrigenId}/trasladar`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mesaDestinoId })
+    const partida = await db.partidasBillar
+      .where('[mesaBillarId+estado]')
+      .equals([mesaOrigenId, 'EN_CURSO'])
+      .first()
+    if (!partida) throw new Error('No hay partida activa en mesa origen')
+
+    const destino = await db.mesasBillar.get(Number(mesaDestinoId))
+    if (!destino) throw new Error('Mesa destino no encontrada')
+
+    await db.partidasBillar.update(partida.id, {
+      mesaBillarId: mesaDestinoId,
+      mesaBillarNumero: destino.numero,
+      mesaBillarNombre: destino.nombre,
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.message || 'Error al trasladar partida')
-    }
+
     await refetch()
-    return res.json()
+    return { ...partida, mesaBillarId: mesaDestinoId, id: String(partida.id) }
   }
 
   const partidasFinalizadas = useMemo(() => partidas.filter(p => p.estado === 'FINALIZADA'), [partidas])
@@ -150,6 +140,6 @@ export function useBillar() {
     eliminarMesa,
     iniciarPartida,
     finalizarPartida,
-    trasladarPartida
+    trasladarPartida,
   }
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { API_URL, apiFetch } from '../lib/config'
+import { db, hashPassword } from '../lib/db'
 import type { DiscoRol } from '../types'
 import TerminosCondiciones from './TerminosCondiciones'
 import PoliticaPrivacidad from './PoliticaPrivacidad'
@@ -28,22 +28,27 @@ export default function Login({ onLogin }: LoginProps) {
 
     setLoading(true)
     try {
-      const res = await apiFetch(`${API_URL}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password }),
-      })
+      const pwHash = await hashPassword(password)
+      const user = await db.users.where('username').equals(username.trim().toLowerCase()).first()
 
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.message || 'Credenciales inválidas')
+      if (!user || user.passwordHash !== pwHash) {
+        setError('Credenciales inválidas')
         return
       }
 
-      onLogin(data.accessToken, data.refreshToken, data.rol, data.nombre, data.meseroId ? String(data.meseroId) : undefined)
+      if (!user.isActive) {
+        setError('Usuario desactivado')
+        return
+      }
+
+      // Generar token local (no se usa realmente, pero mantiene la interfaz)
+      const fakeToken = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`
+      const rol = user.role as DiscoRol
+      const meseroId = user.meseroId ? String(user.meseroId) : undefined
+
+      onLogin(fakeToken, fakeToken, rol, user.nombre, meseroId)
     } catch {
-      setError('No se pudo conectar al servidor')
+      setError('Error al iniciar sesión')
     } finally {
       setLoading(false)
     }
@@ -97,14 +102,14 @@ export default function Login({ onLogin }: LoginProps) {
             boxShadow: '0 0 60px rgba(212,175,55,0.15)',
           }}
         >
-      
+
           <div className="flex flex-col items-center mb-8">
             <img src="/assets/M04.png" alt="Monastery" className="w-20 h-20 object-contain" />
           </div>
 
 
           <form onSubmit={handleSubmit} className="space-y-5">
-          
+
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30">
                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -163,7 +168,7 @@ export default function Login({ onLogin }: LoginProps) {
               </button>
             </div>
 
-         
+
             {error && (
               <div className="text-sm text-center py-2 px-3 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20">
                 {error}

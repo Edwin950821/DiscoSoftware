@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { API_MANAGEMENT, apiFetch } from '../lib/config'
+import { db } from '../lib/db'
 import type { Promocion } from '../types'
 
 export function usePromociones() {
@@ -7,12 +7,8 @@ export function usePromociones() {
   const [loading, setLoading] = useState(false)
 
   const fetchAll = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${API_MANAGEMENT}/promociones`)
-      if (!res.ok) throw new Error('Error fetching promociones')
-      const data = await res.json()
-      setPromociones(data.map((p: any) => ({ ...p, id: String(p.id) })))
-    } catch {}
+    const data = await db.promociones.toArray()
+    setPromociones(data.map((p: any) => ({ ...p, id: String(p.id) })))
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
@@ -24,18 +20,26 @@ export function usePromociones() {
     regaloProductoId: string
     regaloCantidad: number
   }) => {
-    const res = await apiFetch(`${API_MANAGEMENT}/promociones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.message || 'Error al crear promoción')
+    // Resolver nombres de productos
+    const compraProds = await Promise.all(
+      req.compraProductoIds.map(id => db.productos.get(Number(id)))
+    )
+    const regaloProd = await db.productos.get(Number(req.regaloProductoId))
+
+    const data = {
+      nombre: req.nombre,
+      compraProductoIds: req.compraProductoIds,
+      compraProductoNombres: compraProds.map((p: any) => p?.nombre || ''),
+      compraCantidad: req.compraCantidad,
+      regaloProductoId: req.regaloProductoId,
+      regaloProductoNombre: regaloProd?.nombre || '',
+      regaloProductoPrecio: regaloProd?.precio || 0,
+      regaloCantidad: req.regaloCantidad,
+      activa: true,
     }
-    const data = await res.json()
-    fetchAll()
-    return data
+    const id = await db.promociones.add(data)
+    await fetchAll()
+    return { ...data, id: String(id) }
   }
 
   const actualizar = async (id: string, req: {
@@ -46,24 +50,26 @@ export function usePromociones() {
     regaloCantidad?: number
     activa?: boolean
   }) => {
-    const res = await apiFetch(`${API_MANAGEMENT}/promociones/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.message || 'Error al actualizar promoción')
+    const updates: any = { ...req }
+
+    if (req.compraProductoIds) {
+      const prods = await Promise.all(req.compraProductoIds.map(pid => db.productos.get(Number(pid))))
+      updates.compraProductoNombres = prods.map((p: any) => p?.nombre || '')
     }
-    const data = await res.json()
-    fetchAll()
-    return data
+    if (req.regaloProductoId) {
+      const prod = await db.productos.get(Number(req.regaloProductoId))
+      updates.regaloProductoNombre = prod?.nombre || ''
+      updates.regaloProductoPrecio = prod?.precio || 0
+    }
+
+    await db.promociones.update(Number(id), updates)
+    await fetchAll()
+    return { id, ...updates }
   }
 
   const eliminar = async (id: string) => {
-    const res = await apiFetch(`${API_MANAGEMENT}/promociones/${id}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('Error al eliminar promoción')
-    fetchAll()
+    await db.promociones.delete(Number(id))
+    await fetchAll()
   }
 
   const toggleActiva = async (id: string, activa: boolean) => {

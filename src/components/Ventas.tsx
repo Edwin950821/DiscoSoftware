@@ -646,7 +646,7 @@ export default function Ventas() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm text-white font-bold">{partida.mesaBillarNombre}</span>
                             <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-[#4ECDC4]/15 text-[#4ECDC4]">BILLAR</span>
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-white/5 text-white/30">{partida.horasCobradas}h</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-white/5 text-white/30">{partida.horasCobradas} min</span>
                           </div>
                           <div className="flex items-center gap-3 mt-0.5">
                             <span className="text-[10px] text-white/40"><span className="text-white/20">Cliente:</span> {partida.nombreCliente}</span>
@@ -673,7 +673,7 @@ export default function Ventas() {
                               <div className="flex justify-between text-xs"><span className="text-white/40">Inicio</span><span className="text-white/70">{new Date(partida.horaInicio).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span></div>
                               {partida.horaFin && <div className="flex justify-between text-xs"><span className="text-white/40">Fin</span><span className="text-white/70">{new Date(partida.horaFin).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span></div>}
                               <div className="flex justify-between text-xs"><span className="text-white/40">Precio/hora</span><span className="text-white/70">{fmtCOP(partida.precioPorHora)}</span></div>
-                              <div className="flex justify-between text-xs"><span className="text-white/40">Horas cobradas</span><span className="text-white/70 font-bold">{partida.horasCobradas}h</span></div>
+                              <div className="flex justify-between text-xs"><span className="text-white/40">Tiempo cobrado</span><span className="text-white/70 font-bold">{partida.horasCobradas} min</span></div>
                               <div className="h-px bg-white/[0.07]" />
                               <div className="flex justify-between text-sm font-bold"><span className="text-white/60">Total</span><span className="text-[#4ECDC4]">{fmtCOP(partida.total || 0)}</span></div>
                             </div>

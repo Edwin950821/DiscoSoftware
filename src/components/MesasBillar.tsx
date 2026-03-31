@@ -1,11 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { Card } from './ui/Card'
 import { useBillar } from '../hooks/useBillar'
-import { apiFetch } from '../lib/config'
+import { useJornadaDiaria } from '../hooks/useJornadaDiaria'
 import type { MesaBillar } from '../types'
-
-const API = import.meta.env.VITE_API_URL || '/api/disco'
 
 const fmtCOP = (n: number) => '$' + Number(n || 0).toLocaleString('es-CO')
 
@@ -14,6 +12,9 @@ export default function MesasBillar() {
     mesas, partidasFinalizadas, totalBillarHoy,
     crearMesa, actualizarMesa, eliminarMesa, iniciarPartida, finalizarPartida, trasladarPartida
   } = useBillar()
+
+  const { resumen, historial, cerrarJornada: cerrarJornadaHook, loading: cerrandoJornadaHook } = useJornadaDiaria()
+  const jornadaActiva = resumen === null ? null : !resumen.jornadaCerrada
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [newNombre, setNewNombre] = useState('')
@@ -31,21 +32,64 @@ export default function MesasBillar() {
   const [editPrecio, setEditPrecio] = useState('')
   const [showTransfer, setShowTransfer] = useState<MesaBillar | null>(null)
   const [showCerrarJornada, setShowCerrarJornada] = useState(false)
-  const [cerrandoJornada, setCerrandoJornada] = useState(false)
-  const [jornadaCerrada, setJornadaCerrada] = useState<any>(null)
+  const [jornadaCerradaResult, setJornadaCerradaResult] = useState<any>(null)
+  const [showJornadaHistory, setShowJornadaHistory] = useState(false)
+  const [showMesasActivasWarning, setShowMesasActivasWarning] = useState(false)
 
   const mesasActivas = useMemo(() => mesas.filter(m => m.estado === 'EN_JUEGO'), [mesas])
 
-  const handleCerrarJornada = async () => {
-    setCerrandoJornada(true)
+  // --- Drag & drop reorder ---
+  const [mesaOrder, setMesaOrder] = useState<string[]>(() => {
     try {
-      const res = await apiFetch(`${API}/pedidos/jornada/cerrar`, { method: 'POST' })
-      if (!res.ok) throw new Error('Error al cerrar jornada')
-      const data = await res.json()
-      setJornadaCerrada(data)
+      const saved = localStorage.getItem('billar_mesa_order')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+
+  const mesasOrdenadas = useMemo(() => {
+    if (mesaOrder.length === 0) return mesas
+    const orderMap = new Map(mesaOrder.map((id, i) => [id, i]))
+    const sorted = [...mesas].sort((a, b) => {
+      const oa = orderMap.get(a.id) ?? 9999
+      const ob = orderMap.get(b.id) ?? 9999
+      return oa - ob
+    })
+    return sorted
+  }, [mesas, mesaOrder])
+
+  const saveMesaOrder = useCallback((ids: string[]) => {
+    setMesaOrder(ids)
+    localStorage.setItem('billar_mesa_order', JSON.stringify(ids))
+  }, [])
+
+  const handleDragStart = (id: string) => setDragId(id)
+  const handleDragOver = (e: React.DragEvent, id: string) => { e.preventDefault(); setDragOverId(id) }
+  const handleDragLeave = () => setDragOverId(null)
+  const handleDrop = (targetId: string) => {
+    if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return }
+    const currentIds = mesasOrdenadas.map(m => m.id)
+    const fromIdx = currentIds.indexOf(dragId)
+    const toIdx = currentIds.indexOf(targetId)
+    if (fromIdx === -1 || toIdx === -1) { setDragId(null); setDragOverId(null); return }
+    const newIds = [...currentIds]
+    newIds.splice(fromIdx, 1)
+    newIds.splice(toIdx, 0, dragId)
+    saveMesaOrder(newIds)
+    setDragId(null)
+    setDragOverId(null)
+  }
+  const handleDragEnd = () => { setDragId(null); setDragOverId(null) }
+
+  const gridRef = useRef<HTMLDivElement>(null)
+
+  const handleCerrarJornada = async () => {
+    try {
+      const data = await cerrarJornadaHook()
+      setJornadaCerradaResult(data)
       setShowCerrarJornada(false)
     } catch (e: any) { alert(e.message) }
-    setCerrandoJornada(false)
   }
 
   const handleCrear = async () => {
@@ -133,13 +177,28 @@ export default function MesasBillar() {
           <p className="text-[10px] text-white/30 mt-0.5">{new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {partidasFinalizadas.length > 0 && mesasActivas.length === 0 && (
-            <button onClick={() => setShowCerrarJornada(true)}
+          {jornadaActiva === true && (
+            <button onClick={() => {
+              if (mesasActivas.length > 0) {
+                setShowMesasActivasWarning(true)
+                return
+              }
+              setShowCerrarJornada(true)
+            }}
               className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-[#FF6B35] text-white text-[10px] sm:text-sm font-semibold hover:bg-[#FF6B35]/80 transition-all flex items-center gap-1 sm:gap-2">
               <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
               Cerrar Jornada
             </button>
           )}
+          <button
+            onClick={() => window.open(`${window.location.origin}${window.location.pathname}?mode=billar`, '_blank')}
+            className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-white/10 text-white/60 text-[10px] sm:text-sm font-medium hover:bg-white/5 transition-all flex items-center gap-1 sm:gap-2"
+            title="Abrir en nueva pestaña">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+            <span className="hidden sm:inline">Nueva pestaña</span>
+          </button>
           <button onClick={() => setShowAddForm(true)}
             className="px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-[#4ECDC4] text-black text-[10px] sm:text-sm font-semibold hover:bg-[#4ECDC4]/80 transition-all flex items-center gap-1 sm:gap-2">
             <svg className="w-3 h-3 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -155,10 +214,10 @@ export default function MesasBillar() {
         <KpiCard label="En Juego" value={String(mesasActivas.length)} color="#FF6B35" icon={
           <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
         } />
-        <KpiCard label="Partidas Hoy" value={String(partidasFinalizadas.length)} color="#D4AF37" icon={
+        <KpiCard label="Partidas Hoy" value={String(jornadaActiva !== false ? partidasFinalizadas.length : 0)} color="#D4AF37" icon={
           <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
         } />
-        <KpiCard label="Total Billar" value={fmtCOP(totalBillarHoy)} color="#FFE66D" icon={
+        <KpiCard label="Total Billar" value={fmtCOP(jornadaActiva !== false ? totalBillarHoy : 0)} color="#FFE66D" icon={
           <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.94s4.18 1.36 4.18 3.85c0 1.89-1.44 2.98-3.12 3.19z"/></svg>
         } />
       </div>
@@ -172,22 +231,33 @@ export default function MesasBillar() {
           <p className="text-white/30 text-sm">Agrega tu primera mesa para empezar</p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-          {mesas.map(mesa => (
-            <MesaCard
+        <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          {mesasOrdenadas.map(mesa => (
+            <div
               key={mesa.id}
-              mesa={mesa}
-              onPlay={() => { setShowPlay(mesa); setPrecioCustom(String(mesa.precioPorHora)) }}
-              onFinish={() => setShowFinish(mesa)}
-              onTransfer={() => setShowTransfer(mesa)}
-              onEdit={() => openEdit(mesa)}
-              onDelete={() => setConfirmDelete(mesa.id)}
-            />
+              draggable
+              onDragStart={() => handleDragStart(mesa.id)}
+              onDragOver={e => handleDragOver(e, mesa.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={() => handleDrop(mesa.id)}
+              onDragEnd={handleDragEnd}
+              className={`transition-all duration-150 ${dragId === mesa.id ? 'opacity-40 scale-95' : ''} ${dragOverId === mesa.id && dragId !== mesa.id ? 'ring-2 ring-[#4ECDC4]/50 rounded-xl' : ''}`}
+              style={{ cursor: 'grab' }}
+            >
+              <MesaCard
+                mesa={mesa}
+                onPlay={() => { setShowPlay(mesa); setPrecioCustom(String(mesa.precioPorHora)) }}
+                onFinish={() => setShowFinish(mesa)}
+                onTransfer={() => setShowTransfer(mesa)}
+                onEdit={() => openEdit(mesa)}
+                onDelete={() => setConfirmDelete(mesa.id)}
+              />
+            </div>
           ))}
         </div>
       )}
 
-      {partidasFinalizadas.length > 0 && (
+      {jornadaActiva !== false && partidasFinalizadas.length > 0 && (
         <div className="mt-6">
           <button onClick={() => setShowHistory(!showHistory)}
             className="flex items-center gap-2 text-xs text-white/30 uppercase tracking-wider mb-3 hover:text-white/50 transition-colors">
@@ -206,12 +276,12 @@ export default function MesasBillar() {
                     </div>
                     <div>
                       <p className="text-sm text-white/80 font-medium">{p.mesaBillarNombre}</p>
-                      <p className="text-[11px] text-white/30">{p.nombreCliente} - {p.horasCobradas}h x {fmtCOP(p.precioPorHora)}/h</p>
+                      <p className="text-[11px] text-white/30">{p.nombreCliente !== 'Cliente' ? p.nombreCliente + ' - ' : ''}{p.horasCobradas} min x {fmtCOP(Math.round(p.precioPorHora / 60))}/min</p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold text-[#FFE66D]">{fmtCOP(p.total || 0)}</p>
-                    <p className="text-[10px] text-white/20">{new Date(p.horaInicio).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} - {p.horaFin ? new Date(p.horaFin).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                    <p className="text-[10px] text-white/20">{new Date(parseUTC(p.horaInicio)).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} - {p.horaFin ? new Date(parseUTC(p.horaFin)).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
                   </div>
                 </Card>
               ))}
@@ -220,7 +290,45 @@ export default function MesasBillar() {
         </div>
       )}
 
-      {partidasFinalizadas.length > 0 && <BillarCharts partidas={partidasFinalizadas} total={totalBillarHoy} />}
+      {jornadaActiva !== false && partidasFinalizadas.length > 0 && <BillarCharts partidas={partidasFinalizadas} total={totalBillarHoy} />}
+
+      {jornadaActiva === false && (
+        <Card className="text-center py-8 mb-6">
+          <div className="w-14 h-14 rounded-full bg-[#4ECDC4]/10 flex items-center justify-center mx-auto mb-3">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="#4ECDC4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+          </div>
+          <p className="text-white/60 font-medium">Jornada cerrada</p>
+          <p className="text-white/30 text-sm mt-1">Las partidas fueron contabilizadas en el historial</p>
+        </Card>
+      )}
+
+      {historial.length > 0 && (
+        <div className="mt-4">
+          <button onClick={() => setShowJornadaHistory(!showJornadaHistory)}
+            className="flex items-center gap-2 text-xs text-white/30 uppercase tracking-wider mb-3 hover:text-white/50 transition-colors">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: showJornadaHistory ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            Historial de jornadas ({historial.length})
+          </button>
+          {showJornadaHistory && (
+            <div className="space-y-2">
+              {historial.map(j => (
+                <Card key={j.id} className="flex items-center justify-between py-3">
+                  <div>
+                    <p className="text-sm text-white/80 font-medium">{new Date(j.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                    <p className="text-[11px] text-white/30">{j.partidasBillar} partida{j.partidasBillar !== 1 ? 's' : ''} de billar</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-[#FFE66D]">{fmtCOP(j.totalBillar)}</p>
+                    <p className="text-[10px] text-white/20">Total: {fmtCOP(j.totalGeneral)}</p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {showAddForm && (
         <Modal onClose={() => setShowAddForm(false)}>
@@ -294,7 +402,7 @@ export default function MesasBillar() {
               <FinishTimer horaInicio={showFinish.partidaActiva.horaInicio} precioPorHora={showFinish.partidaActiva.precioPorHora} />
             </div>
           )}
-          <p className="text-xs text-white/30 text-center mb-4">Se cobrara por horas completas. Si se paso de la hora, se cobra la siguiente.</p>
+          <p className="text-xs text-white/30 text-center mb-4">Se cobra por minutos jugados. Precio por minuto = precio por hora / 60.</p>
           <div className="flex gap-2">
             <button onClick={() => setShowFinish(null)}
               className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm text-white/60 hover:bg-white/5 transition-all">Cancelar</button>
@@ -316,12 +424,12 @@ export default function MesasBillar() {
             <p className="text-sm text-white/40 mb-4">{finishResult.mesaBillarNombre} - {finishResult.nombreCliente}</p>
             <div className="bg-white/5 rounded-xl p-4 space-y-2 mb-5">
               <div className="flex justify-between text-sm">
-                <span className="text-white/40">Precio/hora</span>
-                <span className="text-white/70">{fmtCOP(finishResult.precioPorHora)}</span>
+                <span className="text-white/40">Precio/min</span>
+                <span className="text-white/70">{fmtCOP(Math.round(finishResult.precioPorHora / 60))}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-white/40">Horas cobradas</span>
-                <span className="text-white/70">{finishResult.horasCobradas}h</span>
+                <span className="text-white/40">Minutos cobrados</span>
+                <span className="text-white/70">{finishResult.horasCobradas} min</span>
               </div>
               <div className="h-px bg-white/[0.07] my-1" />
               <div className="flex justify-between text-base font-bold">
@@ -450,31 +558,55 @@ export default function MesasBillar() {
           <p className="text-[11px] text-white/25 text-center mb-4">La jornada cubre desde la apertura (ej: 12pm) hasta este momento, sin importar que haya pasado medianoche.</p>
           <div className="flex gap-2">
             <button onClick={() => setShowCerrarJornada(false)} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm text-white/60 hover:bg-white/5 transition-all">Cancelar</button>
-            <button onClick={handleCerrarJornada} disabled={cerrandoJornada}
+            <button onClick={handleCerrarJornada} disabled={cerrandoJornadaHook}
               className="flex-1 px-4 py-2.5 rounded-xl bg-[#FF6B35] text-white text-sm font-semibold hover:bg-[#FF6B35]/80 transition-all disabled:opacity-40">
-              {cerrandoJornada ? 'Cerrando...' : 'Cerrar Jornada'}
+              {cerrandoJornadaHook ? 'Cerrando...' : 'Cerrar Jornada'}
             </button>
           </div>
         </Modal>
       )}
 
-      {jornadaCerrada && (
-        <Modal onClose={() => setJornadaCerrada(null)}>
+      {jornadaCerradaResult && (
+        <Modal onClose={() => setJornadaCerradaResult(null)}>
           <div className="text-center">
             <div className="w-16 h-16 rounded-full bg-[#4ECDC4]/10 flex items-center justify-center mx-auto mb-4">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="#4ECDC4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
             </div>
             <h3 className="text-lg font-bold mb-1">Jornada Cerrada</h3>
-            <p className="text-sm text-white/30 mb-4">{jornadaCerrada.fecha}</p>
+            <p className="text-sm text-white/30 mb-4">{jornadaCerradaResult.fecha}</p>
             <div className="bg-white/5 rounded-xl p-4 space-y-2 mb-5 text-sm">
-              {jornadaCerrada.totalVentas > 0 && <div className="flex justify-between"><span className="text-white/40">Ventas</span><span className="text-white/70">{fmtCOP(jornadaCerrada.totalVentas)}</span></div>}
-              <div className="flex justify-between"><span className="text-white/40">Billar</span><span className="text-white/70">{fmtCOP(jornadaCerrada.totalBillar)}</span></div>
-              <div className="flex justify-between"><span className="text-white/40">Partidas</span><span className="text-white/70">{jornadaCerrada.partidasBillar}</span></div>
+              {jornadaCerradaResult.totalVentas > 0 && <div className="flex justify-between"><span className="text-white/40">Ventas</span><span className="text-white/70">{fmtCOP(jornadaCerradaResult.totalVentas)}</span></div>}
+              <div className="flex justify-between"><span className="text-white/40">Billar</span><span className="text-white/70">{fmtCOP(jornadaCerradaResult.totalBillar)}</span></div>
+              <div className="flex justify-between"><span className="text-white/40">Partidas</span><span className="text-white/70">{jornadaCerradaResult.partidasBillar}</span></div>
               <div className="h-px bg-white/[0.07]" />
-              <div className="flex justify-between font-bold"><span className="text-white/60">Total General</span><span className="text-[#FFE66D]">{fmtCOP(jornadaCerrada.totalGeneral)}</span></div>
+              <div className="flex justify-between font-bold"><span className="text-white/60">Total General</span><span className="text-[#FFE66D]">{fmtCOP(jornadaCerradaResult.totalGeneral)}</span></div>
             </div>
-            <button onClick={() => setJornadaCerrada(null)}
+            <button onClick={() => setJornadaCerradaResult(null)}
               className="w-full px-4 py-2.5 rounded-xl bg-white/10 text-sm text-white/70 hover:bg-white/15 transition-all">Cerrar</button>
+          </div>
+        </Modal>
+      )}
+
+      {showMesasActivasWarning && (
+        <Modal onClose={() => setShowMesasActivasWarning(false)}>
+          <div className="text-center">
+            <div className="w-14 h-14 rounded-full bg-[#FF5050]/10 flex items-center justify-center mx-auto mb-3">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF5050" strokeWidth="2" strokeLinecap="round"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            </div>
+            <h3 className="text-lg font-bold mb-2">No puedes cerrar la jornada</h3>
+            <p className="text-sm text-white/40 mb-4">
+              Hay <span className="text-[#FF6B35] font-bold">{mesasActivas.length}</span> mesa{mesasActivas.length !== 1 ? 's' : ''} en juego. Finaliza todas las partidas antes de cerrar.
+            </p>
+            <div className="bg-white/5 rounded-xl p-3 mb-5 space-y-1.5">
+              {mesasActivas.map(m => (
+                <div key={m.id} className="flex items-center justify-between text-sm">
+                  <span className="text-white/60">{m.nombre}</span>
+                  <span className="text-[#FF6B35] text-xs font-medium">EN JUEGO</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setShowMesasActivasWarning(false)}
+              className="w-full px-4 py-2.5 rounded-xl bg-white/10 text-sm text-white/70 hover:bg-white/15 transition-all">Entendido</button>
           </div>
         </Modal>
       )}
@@ -508,11 +640,11 @@ function MesaCard({ mesa, onPlay, onFinish, onTransfer, onEdit, onDelete }: { me
           <div className="bg-white/[0.03] rounded-lg p-3 mb-3 border border-white/[0.05]">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-white/40">Cliente</span>
-              <span className="text-xs text-white/70 font-medium">{mesa.partidaActiva.nombreCliente}</span>
+              <span className="text-xs text-white/70 font-medium">{mesa.partidaActiva.nombreCliente === 'Cliente' ? '—' : mesa.partidaActiva.nombreCliente}</span>
             </div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-white/40">Inicio</span>
-              <span className="text-xs text-white/70">{new Date(mesa.partidaActiva.horaInicio).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="text-xs text-white/70">{new Date(parseUTC(mesa.partidaActiva.horaInicio)).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <ActiveTimer horaInicio={mesa.partidaActiva.horaInicio} precioPorHora={mesa.partidaActiva.precioPorHora} />
           </div>
@@ -559,18 +691,25 @@ function MesaCard({ mesa, onPlay, onFinish, onTransfer, onEdit, onDelete }: { me
   )
 }
 
+function parseUTC(dt: string) {
+  // Truncar nanosegundos a milisegundos (JS solo soporta 3 decimales)
+  const clean = dt.replace(/(\.\d{3})\d+/, '$1')
+  return new Date(clean.endsWith('Z') ? clean : clean + 'Z').getTime()
+}
+
 function ActiveTimer({ horaInicio, precioPorHora }: { horaInicio: string; precioPorHora: number }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
 
-  const start = new Date(horaInicio).getTime()
+  const start = parseUTC(horaInicio)
   const elapsed = Math.max(0, now - start)
   const totalSec = Math.floor(elapsed / 1000)
   const hours = Math.floor(totalSec / 3600)
   const mins = Math.floor((totalSec % 3600) / 60)
   const secs = totalSec % 60
-  const horasCobrar = Math.max(1, Math.ceil((totalSec) / 3600))
-  const totalEstimado = horasCobrar * precioPorHora
+  const minutosCobrar = Math.max(1, Math.ceil(totalSec / 60))
+  const precioPorMinuto = precioPorHora / 60
+  const totalEstimado = Math.round(minutosCobrar * precioPorMinuto)
 
   return (
     <div>
@@ -581,7 +720,7 @@ function ActiveTimer({ horaInicio, precioPorHora }: { horaInicio: string; precio
         </span>
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-xs text-white/40">Estimado ({horasCobrar}h)</span>
+        <span className="text-xs text-white/40">Estimado ({minutosCobrar} min)</span>
         <span className="text-sm font-bold text-[#FFE66D]">{fmtCOP(totalEstimado)}</span>
       </div>
     </div>
@@ -592,13 +731,14 @@ function FinishTimer({ horaInicio, precioPorHora }: { horaInicio: string; precio
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
 
-  const start = new Date(horaInicio).getTime()
+  const start = parseUTC(horaInicio)
   const elapsed = Math.max(0, now - start)
   const totalSec = Math.floor(elapsed / 1000)
   const hours = Math.floor(totalSec / 3600)
   const mins = Math.floor((totalSec % 3600) / 60)
-  const horasCobrar = Math.max(1, Math.ceil(totalSec / 3600))
-  const totalEstimado = horasCobrar * precioPorHora
+  const minutosCobrar = Math.max(1, Math.ceil(totalSec / 60))
+  const precioPorMinuto = precioPorHora / 60
+  const totalEstimado = Math.round(minutosCobrar * precioPorMinuto)
 
   return (
     <>
@@ -607,12 +747,12 @@ function FinishTimer({ horaInicio, precioPorHora }: { horaInicio: string; precio
         <span className="text-white/70 font-mono">{hours}h {mins}m</span>
       </div>
       <div className="flex justify-between text-sm">
-        <span className="text-white/40">Horas a cobrar</span>
-        <span className="text-white/70 font-bold">{horasCobrar}h</span>
+        <span className="text-white/40">Minutos a cobrar</span>
+        <span className="text-white/70 font-bold">{minutosCobrar} min</span>
       </div>
       <div className="flex justify-between text-sm">
-        <span className="text-white/40">Precio/hora</span>
-        <span className="text-white/70">{fmtCOP(precioPorHora)}</span>
+        <span className="text-white/40">Precio/min</span>
+        <span className="text-white/70">{fmtCOP(Math.round(precioPorMinuto))}</span>
       </div>
       <div className="h-px bg-white/[0.07]" />
       <div className="flex justify-between text-base font-bold">
@@ -626,12 +766,12 @@ function FinishTimer({ horaInicio, precioPorHora }: { horaInicio: string; precio
 function KpiCard({ label, value, color, icon }: { label: string; value: string; color: string; icon: React.ReactNode }) {
   return (
     <div className="bg-card border border-white/[0.07] rounded-xl overflow-hidden flex">
-      <div className="w-20 shrink-0 flex items-center justify-center" style={{ backgroundColor: color + '20' }}>
-        <div style={{ color }}>{icon}</div>
+      <div className="w-12 sm:w-20 shrink-0 flex items-center justify-center" style={{ backgroundColor: color + '20' }}>
+        <div className="scale-75 sm:scale-100" style={{ color }}>{icon}</div>
       </div>
-      <div className="flex-1 p-3 pl-3.5">
-        <span className="text-[10px] text-white/30 uppercase tracking-wider block mb-1">{label}</span>
-        <p className="text-lg font-extrabold text-white">{value}</p>
+      <div className="flex-1 min-w-0 p-2 sm:p-3 sm:pl-3.5">
+        <span className="text-[9px] sm:text-[10px] text-white/30 uppercase tracking-wider block mb-0.5 sm:mb-1 truncate">{label}</span>
+        <p className="text-sm sm:text-lg font-extrabold text-white truncate">{value}</p>
       </div>
     </div>
   )

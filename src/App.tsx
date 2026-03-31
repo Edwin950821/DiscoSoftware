@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import Login from './components/Login'
 import DiasApertura from './components/Jornadas'
 import Configuracion from './components/Configuracion'
@@ -15,9 +15,7 @@ import { useTrabajadores } from './hooks/useTrabajadores'
 import { useJornadas } from './hooks/useJornadas'
 import { useInventarios } from './hooks/useInventarios'
 import { useComparativos } from './hooks/useComparativos'
-import { API_URL, apiFetch } from './lib/config'
-import { initSocket, disconnectSocket } from './lib/socket'
-import { requestNotificationPermission } from './lib/notification'
+import { seedDatabase } from './lib/seedData'
 import type { DiscoRol, View } from './types'
 
 interface SessionData {
@@ -70,7 +68,6 @@ export default function App() {
   const [nombre, setNombre] = useState(() => initialSession?.nombre ?? '')
   const [reloj, setReloj] = useState('')
   const [accessToken, setAccessToken] = useState(() => initialSession?.accessToken ?? '')
-  const [refreshToken, setRefreshToken] = useState(() => initialSession?.refreshToken ?? '')
   const [meseroId, setMeseroId] = useState(() => initialSession?.meseroId ?? '')
   const [mobileMenu, setMobileMenu] = useState(false)
 
@@ -80,6 +77,9 @@ export default function App() {
   const { inventarios, guardar: guardarInventario, eliminar: eliminarInventario } = useInventarios()
   const { comparativos, guardar: guardarComparativo, eliminar: eliminarComparativo } = useComparativos()
 
+  // Seed database on first load
+  useEffect(() => { seedDatabase() }, [])
+
   useEffect(() => {
     const tick = () => setReloj(new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
     tick()
@@ -87,48 +87,17 @@ export default function App() {
     return () => clearInterval(id)
   }, [])
 
-  useEffect(() => {
-    if (accessToken) initSocket(accessToken, meseroId || undefined)
-  }, [accessToken])
-
-  useEffect(() => {
-    if (rol === 'ADMINISTRADOR' || rol === 'MESERO') requestNotificationPermission()
-  }, [rol])
-
   const clearSession = useCallback(() => {
-    removeSession(); setAccessToken(''); setRefreshToken(''); setMeseroId(''); setRol(null); setNombre(''); setView('login')
+    removeSession(); setAccessToken(''); setMeseroId(''); setRol(null); setNombre(''); setView('login')
   }, [])
 
-  const handleLogout = useCallback(async () => {
-    try { await apiFetch(`${API_URL}/logout`, { method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` } }) } catch { /* */ }
-    disconnectSocket()
+  const handleLogout = useCallback(() => {
     clearSession()
-  }, [accessToken, clearSession])
-
-  const sessionRef = useRef({ refreshToken, rol, nombre, meseroId })
-  useEffect(() => { sessionRef.current = { refreshToken, rol, nombre, meseroId } }, [refreshToken, rol, nombre, meseroId])
-
-  useEffect(() => {
-    if (!refreshToken) return
-    const interval = setInterval(async () => {
-      const s = sessionRef.current
-      if (!s.refreshToken) return
-      try {
-        const res = await apiFetch(`${API_URL}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: s.refreshToken }) })
-        if (res.ok) {
-          const data = await res.json()
-          saveSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, rol: s.rol!, nombre: s.nombre, meseroId: s.meseroId || undefined })
-          setAccessToken(data.accessToken); setRefreshToken(data.refreshToken)
-        } else if (res.status === 401) { clearSession() }
-      } catch { /* */ }
-    }, 14 * 60 * 1000)
-    return () => clearInterval(interval)
   }, [clearSession])
 
-  const handleLogin = (at: string, rt: string, r: DiscoRol, n: string, mId?: string) => {
-    saveSession({ accessToken: at, refreshToken: rt, rol: r, nombre: n, meseroId: mId })
-    initSocket(at, mId) // Inicializar socket ANTES del re-render para que los hijos tengan acceso
-    setAccessToken(at); setRefreshToken(rt); setRol(r); setNombre(n); setMeseroId(mId || '')
+  const handleLogin = (at: string, _rt: string, r: DiscoRol, n: string, mId?: string) => {
+    saveSession({ accessToken: at, refreshToken: at, rol: r, nombre: n, meseroId: mId })
+    setAccessToken(at); setRol(r); setNombre(n); setMeseroId(mId || '')
     setView(r === 'MESERO' ? 'pedidos' : (loadPremium() ? 'dashboard' : 'liquidacion'))
   }
 
@@ -139,7 +108,9 @@ export default function App() {
   const isAdmin = rol === 'ADMINISTRADOR'
   const isMesero = rol === 'MESERO'
   const rolLabel = isAdmin ? 'Administrador' : isMesero ? 'Mesero' : 'Dueno'
-  const pedidosMode = new URLSearchParams(window.location.search).get('mode') === 'pedidos'
+  const searchParams = new URLSearchParams(window.location.search)
+  const pedidosMode = searchParams.get('mode') === 'pedidos'
+  const billarMode = searchParams.get('mode') === 'billar'
 
   if (isMesero) {
     return (
@@ -160,6 +131,28 @@ export default function App() {
         </header>
         <main className="p-4 sm:p-6">
           <PedidosMesero meseroId={meseroId} />
+        </main>
+      </div>
+    )
+  }
+
+  if (billarMode && isAdmin) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white">
+        <header className="bg-[#0A0A0A] border-b border-white/[0.07] px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
+            <span className="text-sm font-semibold text-white/80">Monastery Club</span>
+            <span className="text-[10px] text-[#4ECDC4]/60 font-medium ml-1">Billar</span>
+            <span className="text-[10px] text-white/20 font-mono">{reloj}</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-white/30">{nombre}</span>
+            <button onClick={handleLogout} className="text-xs text-[#FF5050] hover:text-[#FF5050]/80 transition-colors">Cerrar sesion</button>
+          </div>
+        </header>
+        <main className="p-4 sm:p-6">
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-white/30 text-sm">Cargando...</div>}><MesasBillar /></Suspense>
         </main>
       </div>
     )

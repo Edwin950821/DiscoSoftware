@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { API_PEDIDOS, apiFetch } from '../lib/config'
-import { getSocket } from '../lib/socket'
+import { db, getHoy } from '../lib/db'
 import type { ResumenDia, ResumenJornada } from '../types'
 
 export function useJornadaDiaria() {
@@ -9,31 +8,93 @@ export function useJornadaDiaria() {
   const [loading, setLoading] = useState(false)
 
   const fetchResumen = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${API_PEDIDOS}/jornada/resumen`)
-      if (res.ok) setResumen(await res.json())
-    } catch {}
+    const hoy = getHoy()
+
+    const cuentas = await db.cuentas.where('jornadaFecha').equals(hoy).toArray()
+    const pedidos = await db.pedidos.where('jornadaFecha').equals(hoy).toArray()
+    const partidas = await db.partidasBillar.where('jornadaFecha').equals(hoy).toArray()
+
+    const cuentasPagadas = cuentas.filter((c: any) => c.estado === 'PAGADA')
+    const cuentasAbiertas = cuentas.filter((c: any) => c.estado === 'ABIERTA')
+    const partidasFinalizadas = partidas.filter((p: any) => p.estado === 'FINALIZADA')
+
+    const totalVentas = cuentasPagadas.reduce((s: number, c: any) => s + (c.total || 0) - (c.descuentoPromo || 0), 0)
+    const totalBillar = partidasFinalizadas.reduce((s: number, p: any) => s + (p.total || 0), 0)
+
+    const mesasAtendidas = new Set(cuentas.map((c: any) => c.mesaId)).size
+
+    // Check if jornada was already closed today
+    const jornadaCerrada = await db.jornadasDiarias.where('fecha').equals(hoy).first()
+
+    setResumen({
+      fecha: hoy,
+      totalVentas,
+      totalBillar,
+      totalGeneral: totalVentas + totalBillar,
+      cuentasCerradas: cuentasPagadas.length,
+      cuentasAbiertas: cuentasAbiertas.length,
+      ticketsTotales: pedidos.length,
+      mesasAtendidas,
+      partidasBillar: partidasFinalizadas.length,
+      jornadaCerrada: !!jornadaCerrada,
+    })
   }, [])
 
   const fetchHistorial = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${API_PEDIDOS}/jornada/historial`)
-      if (res.ok) setHistorial(await res.json())
-    } catch {}
+    const data = await db.jornadasDiarias.orderBy('fecha').reverse().toArray()
+    setHistorial(data.map((j: any) => ({ ...j, id: String(j.id) })) as ResumenJornada[])
   }, [])
 
   const cerrarJornada = useCallback(async (): Promise<ResumenJornada | null> => {
     setLoading(true)
     try {
-      const res = await apiFetch(`${API_PEDIDOS}/jornada/cerrar`, { method: 'POST' })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        throw new Error(err?.message || 'Error al cerrar jornada')
+      const hoy = getHoy()
+
+      // Check if already closed
+      const existing = await db.jornadasDiarias.where('fecha').equals(hoy).first()
+      if (existing) throw new Error('La jornada de hoy ya fue cerrada')
+
+      const cuentas = await db.cuentas.where('jornadaFecha').equals(hoy).toArray()
+      const pedidos = await db.pedidos.where('jornadaFecha').equals(hoy).toArray()
+      const partidas = await db.partidasBillar.where('jornadaFecha').equals(hoy).toArray()
+
+      const cuentasPagadas = cuentas.filter((c: any) => c.estado === 'PAGADA')
+      const partidasFinalizadas = partidas.filter((p: any) => p.estado === 'FINALIZADA')
+
+      const totalVentas = cuentasPagadas.reduce((s: number, c: any) => s + (c.total || 0) - (c.descuentoPromo || 0), 0)
+      const totalBillar = partidasFinalizadas.reduce((s: number, p: any) => s + (p.total || 0), 0)
+      const mesasAtendidas = new Set(cuentas.map((c: any) => c.mesaId)).size
+
+      const resumenJornada = {
+        fecha: hoy,
+        totalVentas,
+        totalBillar,
+        totalGeneral: totalVentas + totalBillar,
+        cuentasCerradas: cuentasPagadas.length,
+        ticketsTotales: pedidos.length,
+        mesasAtendidas,
+        partidasBillar: partidasFinalizadas.length,
+        cerradoEn: new Date().toISOString(),
       }
-      const data = await res.json()
+
+      const id = await db.jornadasDiarias.add(resumenJornada)
+
+      // Liberar todas las mesas
+      const todasMesas = await db.mesas.toArray()
+      await Promise.all(todasMesas.map((m: any) =>
+        db.mesas.update(m.id, {
+          estado: 'LIBRE',
+          nombreCliente: undefined,
+          meseroId: undefined,
+          meseroNombre: undefined,
+          meseroColor: undefined,
+          meseroAvatar: undefined,
+        })
+      ))
+
       await fetchResumen()
       await fetchHistorial()
-      return data
+      return { ...resumenJornada, id: String(id) } as ResumenJornada
     } catch (e) {
       throw e
     } finally {
@@ -44,35 +105,6 @@ export function useJornadaDiaria() {
   useEffect(() => {
     fetchResumen()
     fetchHistorial()
-  }, [fetchResumen, fetchHistorial])
-
-  useEffect(() => {
-    let cleanup: (() => void) | null = null
-    let retryId: ReturnType<typeof setInterval> | null = null
-
-    const register = () => {
-      const socket = getSocket()
-      if (!socket) return false
-
-      const onJornadaCerrada = () => {
-        fetchResumen()
-        fetchHistorial()
-      }
-      socket.on('jornada_cerrada', onJornadaCerrada)
-      cleanup = () => { socket.off('jornada_cerrada', onJornadaCerrada) }
-      return true
-    }
-
-    if (!register()) {
-      retryId = setInterval(() => {
-        if (register() && retryId) { clearInterval(retryId); retryId = null }
-      }, 500)
-    }
-
-    return () => {
-      if (retryId) clearInterval(retryId)
-      if (cleanup) cleanup()
-    }
   }, [fetchResumen, fetchHistorial])
 
   return { resumen, historial, cerrarJornada, loading, refetch: fetchResumen }

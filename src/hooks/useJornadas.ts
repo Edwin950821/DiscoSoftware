@@ -1,51 +1,67 @@
 import { useEffect, useState, useCallback } from 'react'
-import { API_MANAGEMENT, apiFetch } from '../lib/config'
+import { db } from '../lib/db'
 import type { Jornada, LiquidacionTrabajador } from '../types'
-import { calcularLiquidacion } from '../lib/utils'
+import { calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
 
 export function useJornadas() {
   const [jornadas, setJornadas] = useState<Jornada[]>([])
 
   const fetchAll = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${API_MANAGEMENT}/jornadas`)
-      if (!res.ok) throw new Error('Error fetching jornadas')
-      const data = await res.json()
-      setJornadas(data.map((j: any) => {
-        const meseros = j.meseros || j.liquidaciones || []
+    const data = await db.jornadas.orderBy('creadoEn').reverse().toArray()
+    setJornadas(data.map((j: any) => {
+      const meseros = j.meseros || j.liquidaciones || []
+      const liquidaciones = meseros.map((m: any) => {
+        const pagos = m.pagos || {}
         return {
-          ...j,
-          id: String(j.id),
-          liquidaciones: meseros.map((m: any) => {
-            const pagos = m.pagos || {}
-            return {
-              trabajadorId: String(m.meseroId || m.trabajadorId),
-              nombre: m.nombre,
-              color: m.color,
-              avatar: m.avatar,
-              totalVenta: m.totalMesero ?? m.totalVenta ?? 0,
-              efectivoEntregado: pagos.Efectivo ?? m.efectivoEntregado ?? 0,
-              lineas: m.lineas || [],
-              transacciones: Object.entries(pagos)
-                .filter(([k]) => k !== 'Efectivo' && k !== 'Vales')
-                .filter(([, v]) => (v as number) > 0)
-                .map(([tipo, monto]) => ({ tipo, concepto: '', monto: monto as number })),
-              vales: pagos.Vales ? [{ tercero: 'Vales', monto: pagos.Vales }] : (m.vales || []),
-              cortesias: typeof m.cortesias === 'number' && m.cortesias > 0 ? [{ concepto: 'Cortesias', monto: m.cortesias }] : (Array.isArray(m.cortesias) ? m.cortesias : []),
-              gastos: typeof m.gastos === 'number' && m.gastos > 0 ? [{ concepto: 'Gastos', monto: m.gastos }] : (Array.isArray(m.gastos) ? m.gastos : []),
-            } as LiquidacionTrabajador
-          }),
-        } as Jornada
-      }))
-    } catch {}
+          trabajadorId: String(m.meseroId || m.trabajadorId),
+          nombre: m.nombre,
+          color: m.color,
+          avatar: m.avatar,
+          totalVenta: m.totalMesero ?? m.totalVenta ?? 0,
+          efectivoEntregado: pagos.Efectivo ?? m.efectivoEntregado ?? 0,
+          lineas: m.lineas || [],
+          transacciones: Object.entries(pagos)
+            .filter(([k]) => k !== 'Efectivo' && k !== 'Vales')
+            .filter(([, v]) => (v as number) > 0)
+            .map(([tipo, monto]) => ({ tipo, concepto: '', monto: monto as number })),
+          vales: pagos.Vales ? [{ tercero: 'Vales', monto: pagos.Vales }] : (m.vales || []),
+          cortesias: typeof m.cortesias === 'number' && m.cortesias > 0
+            ? [{ concepto: 'Cortesias', monto: m.cortesias }]
+            : (Array.isArray(m.cortesias) ? m.cortesias : []),
+          gastos: typeof m.gastos === 'number' && m.gastos > 0
+            ? [{ concepto: 'Gastos', monto: m.gastos }]
+            : (Array.isArray(m.gastos) ? m.gastos : []),
+        } as LiquidacionTrabajador
+      })
+      const cuadre = calcularCuadreDia(liquidaciones)
+      return {
+        ...j,
+        id: String(j.id),
+        liquidaciones,
+        totalVendido: cuadre.totalVendido,
+        totalRecibido: cuadre.totalRecibido,
+        saldo: cuadre.saldo,
+        cortesias: cuadre.totalCortesias,
+        gastos: cuadre.totalGastos,
+        pagos: cuadre.pagos,
+      } as Jornada
+    }))
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
   const guardar = async (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => {
+    const cuadre = calcularCuadreDia(input.liquidaciones)
     const body = {
       sesion: input.sesion,
       fecha: input.fecha,
+      creadoEn: new Date().toISOString(),
+      totalVendido: cuadre.totalVendido,
+      totalRecibido: cuadre.totalRecibido,
+      saldo: cuadre.saldo,
+      cortesias: cuadre.totalCortesias,
+      gastos: cuadre.totalGastos,
+      pagos: cuadre.pagos,
       meseros: input.liquidaciones.map(liq => {
         const c = calcularLiquidacion(liq)
         const pagos: Record<string, number> = {}
@@ -64,21 +80,16 @@ export function useJornadas() {
           cortesias: c.totalCortesias,
           gastos: c.totalGastos,
           pagos,
+          lineas: liq.lineas || [],
         }
       }),
     }
-    const res = await apiFetch(`${API_MANAGEMENT}/jornadas`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) throw new Error('Error creating jornada')
+    await db.jornadas.add(body)
     await fetchAll()
   }
 
   const eliminar = async (id: string) => {
-    const res = await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('Error deleting jornada')
+    await db.jornadas.delete(Number(id))
     await fetchAll()
   }
 

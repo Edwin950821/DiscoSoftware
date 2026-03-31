@@ -1,8 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { API_PEDIDOS, apiFetch } from '../lib/config'
-import { getSocket } from '../lib/socket'
-import { playNotificationSound } from '../lib/sound'
-import { sendBrowserNotification, vibrar } from '../lib/notification'
+import { db, getHoy } from '../lib/db'
 import type { Pedido, CuentaMesa } from '../types'
 
 export function usePedidos() {
@@ -13,209 +10,329 @@ export function usePedidos() {
   const [notifCuentaPagada, setNotifCuentaPagada] = useState<CuentaMesa | null>(null)
   const notifTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const despachadoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const cuentaPagadaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const despachando = useRef<string | null>(null)
 
   const fetchHoy = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${API_PEDIDOS}/hoy`)
-      if (!res.ok) throw new Error('Error fetching pedidos')
-      const data = await res.json()
-      setPedidos(data.map((p: any) => ({ ...p, id: String(p.id) })))
-    } catch {}
+    const hoy = getHoy()
+    const data = await db.pedidos.where('jornadaFecha').equals(hoy).toArray()
+    const mapped = data.map((p: any) => ({ ...p, id: String(p.id) })).reverse()
+    setPedidos(mapped)
+    setPendientes(mapped.filter((p: Pedido) => p.estado === 'PENDIENTE'))
   }, [])
 
-  const fetchPendientes = useCallback(async () => {
-    try {
-      const res = await apiFetch(`${API_PEDIDOS}/pendientes`)
-      if (!res.ok) throw new Error('Error fetching pendientes')
-      const data = await res.json()
-      setPendientes(data.map((p: any) => ({ ...p, id: String(p.id) })))
-    } catch {}
-  }, [])
-
-  const refetch = useCallback(() => { fetchHoy(); fetchPendientes() }, [fetchHoy, fetchPendientes])
+  const refetch = useCallback(() => { fetchHoy() }, [fetchHoy])
 
   useEffect(() => { refetch() }, [refetch])
 
-  useEffect(() => {
-    let cleanup: (() => void) | null = null
-    let retryId: ReturnType<typeof setInterval> | null = null
+  const crearPedido = async (mesaId: string, meseroId: string, lineas: { productoId: string; cantidad: number }[], nota?: string) => {
+    const hoy = getHoy()
+    const mesa = await db.mesas.get(Number(mesaId))
+    const mesero = await db.trabajadores.get(Number(meseroId))
+    if (!mesa || !mesero) throw new Error('Mesa o mesero no encontrado')
 
-    const registerListeners = () => {
-      const socket = getSocket()
-      if (!socket) return false
+    // Calcular ticketDia
+    const todayPedidos = await db.pedidos.where('jornadaFecha').equals(hoy).count()
+    const ticketDia = todayPedidos + 1
 
-      const onNuevoPedido = (pedido: any) => {
-        const p = { ...pedido, id: String(pedido.id) }
-        setPedidos(prev => [p, ...prev])
-        setPendientes(prev => [p, ...prev])
-        if (notifTimer.current) clearTimeout(notifTimer.current)
-        setNotificacion(p)
-        playNotificationSound()
-        vibrar([300, 100, 300])
-        sendBrowserNotification(
-          `Nuevo Ticket #${p.ticketDia}`,
-          `${p.mesaNombre} - ${p.meseroNombre} - $${Number(p.total || 0).toLocaleString('es-CO')}`,
-        )
-        notifTimer.current = setTimeout(() => setNotificacion(null), 5000)
+    // Resolver productos
+    const lineasCompletas = await Promise.all(lineas.map(async l => {
+      const prod = await db.productos.get(Number(l.productoId))
+      return {
+        id: String(Date.now() + Math.random()),
+        productoId: l.productoId,
+        nombre: prod?.nombre || '',
+        precioUnitario: prod?.precio || 0,
+        cantidad: l.cantidad,
+        total: (prod?.precio || 0) * l.cantidad,
       }
+    }))
 
-      const onPedidoDespachado = (pedido: any) => {
-        const p = { ...pedido, id: String(pedido.id) }
-        setPedidos(prev => prev.map(x => x.id === p.id ? p : x))
-        setPendientes(prev => prev.filter(x => x.id !== p.id))
-        if (despachando.current !== p.id) {
-          if (despachadoTimer.current) clearTimeout(despachadoTimer.current)
-          setNotifDespachado(p)
-          despachadoTimer.current = setTimeout(() => setNotifDespachado(null), 8000)
-        }
-      }
+    const total = lineasCompletas.reduce((s, l) => s + l.total, 0)
+    const now = new Date().toISOString()
 
-      const onPedidoCancelado = (pedido: any) => {
-        const p = { ...pedido, id: String(pedido.id) }
-        setPedidos(prev => prev.map(x => x.id === p.id ? p : x))
-        setPendientes(prev => prev.filter(x => x.id !== p.id))
-      }
-
-      const onCortesiaAplicada = (pedido: any) => {
-        const p = { ...pedido, id: String(pedido.id) }
-        setPedidos(prev => [p, ...prev])
-      }
-
-      const onCortesiaCancelada = (pedido: any) => {
-        const p = { ...pedido, id: String(pedido.id) }
-        setPedidos(prev => prev.map(x => x.id === p.id ? p : x))
-      }
-
-      const onCuentaPagada = (cuenta: any) => {
-        if (cuentaPagadaTimer.current) clearTimeout(cuentaPagadaTimer.current)
-        setNotifCuentaPagada(cuenta)
-        playNotificationSound()
-        vibrar([200, 100, 200])
-        sendBrowserNotification(
-          `Cuenta pagada`,
-          `${cuenta.mesaNombre} — ${cuenta.meseroNombre} — $${Number(cuenta.total || 0).toLocaleString('es-CO')}`,
-        )
-        cuentaPagadaTimer.current = setTimeout(() => setNotifCuentaPagada(null), 8000)
-      }
-
-      socket.on('nuevo_pedido', onNuevoPedido)
-      socket.on('pedido_despachado', onPedidoDespachado)
-      socket.on('pedido_cancelado', onPedidoCancelado)
-      socket.on('cortesia_aplicada', onCortesiaAplicada)
-      socket.on('cortesia_cancelada', onCortesiaCancelada)
-      socket.on('cuenta_pagada', onCuentaPagada)
-
-      cleanup = () => {
-        socket.off('nuevo_pedido', onNuevoPedido)
-        socket.off('pedido_despachado', onPedidoDespachado)
-        socket.off('pedido_cancelado', onPedidoCancelado)
-        socket.off('cortesia_aplicada', onCortesiaAplicada)
-        socket.off('cortesia_cancelada', onCortesiaCancelada)
-        socket.off('cuenta_pagada', onCuentaPagada)
-      }
-      return true
+    const pedido = {
+      mesaId: mesaId,
+      mesaNumero: mesa.numero,
+      mesaNombre: mesa.nombre,
+      meseroId: meseroId,
+      meseroNombre: mesero.nombre,
+      meseroColor: mesero.color,
+      meseroAvatar: mesero.avatar,
+      ticketDia,
+      estado: 'PENDIENTE',
+      total,
+      jornadaFecha: hoy,
+      nota: nota || undefined,
+      esCortesia: false,
+      lineas: lineasCompletas,
+      creadoEn: now,
     }
 
-    if (!registerListeners()) {
-      retryId = setInterval(() => {
-        if (registerListeners() && retryId) {
-          clearInterval(retryId)
-          retryId = null
-        }
-      }, 500)
+    const id = await db.pedidos.add(pedido)
+
+    // Asegurar que la mesa esté OCUPADA
+    await db.mesas.update(Number(mesaId), {
+      estado: 'OCUPADA',
+      meseroId: meseroId,
+      meseroNombre: mesero.nombre,
+      meseroColor: mesero.color,
+      meseroAvatar: mesero.avatar,
+    })
+
+    // Crear o actualizar cuenta
+    let cuenta = await db.cuentas.where({ mesaId, jornadaFecha: hoy, estado: 'ABIERTA' }).first()
+    if (!cuenta) {
+      await db.cuentas.add({
+        mesaId,
+        mesaNumero: mesa.numero,
+        mesaNombre: mesa.nombre,
+        nombreCliente: mesa.nombreCliente || '',
+        meseroId,
+        meseroNombre: mesero.nombre,
+        meseroColor: mesero.color,
+        meseroAvatar: mesero.avatar,
+        jornadaFecha: hoy,
+        total: total,
+        estado: 'ABIERTA',
+        pedidos: [],
+        creadoEn: now,
+      })
+    } else {
+      // Actualizar total de la cuenta
+      const cuentaPedidos = await db.pedidos.where({ mesaId, jornadaFecha: hoy }).toArray()
+      const cuentaTotal = cuentaPedidos
+        .filter((p: any) => p.estado !== 'CANCELADO')
+        .reduce((s: number, p: any) => s + (p.total || 0), 0)
+      await db.cuentas.update(cuenta.id, { total: cuentaTotal })
     }
 
-    return () => {
-      if (retryId) clearInterval(retryId)
-      if (cleanup) cleanup()
-      if (notifTimer.current) clearTimeout(notifTimer.current)
-      if (despachadoTimer.current) clearTimeout(despachadoTimer.current)
-      if (cuentaPagadaTimer.current) clearTimeout(cuentaPagadaTimer.current)
-    }
-  }, [])
+    await fetchHoy()
+    return { ...pedido, id: String(id) }
+  }
 
   const despachar = async (pedidoId: string) => {
-    despachando.current = pedidoId
-    const res = await apiFetch(`${API_PEDIDOS}/${pedidoId}/despachar`, { method: 'PATCH' })
-    if (!res.ok) { despachando.current = null; throw new Error('Error al despachar') }
-    const data = await res.json()
-    setTimeout(() => { despachando.current = null }, 2000)
-    return data
-  }
+    const now = new Date().toISOString()
+    await db.pedidos.update(Number(pedidoId), { estado: 'DESPACHADO', despachadoEn: now })
+    const pedido = await db.pedidos.get(Number(pedidoId))
+    const p = { ...pedido, id: pedidoId }
 
-  const cancelar = async (pedidoId: string) => {
-    const res = await apiFetch(`${API_PEDIDOS}/${pedidoId}/cancelar`, { method: 'PATCH' })
-    if (!res.ok) throw new Error('Error al cancelar')
-    return res.json()
-  }
+    if (despachadoTimer.current) clearTimeout(despachadoTimer.current)
+    setNotifDespachado(p as Pedido)
+    despachadoTimer.current = setTimeout(() => setNotifDespachado(null), 8000)
 
-  const getCuenta = async (mesaId: string): Promise<CuentaMesa | null> => {
-    const res = await apiFetch(`${API_PEDIDOS}/mesas/${mesaId}/cuenta`)
-    if (!res.ok) return null
-    const data = await res.json()
-    if (data.message) return null
-    return data
-  }
-
-  const pagarCuenta = async (mesaId: string) => {
-    const res = await apiFetch(`${API_PEDIDOS}/mesas/${mesaId}/pagar`, { method: 'POST' })
-    if (!res.ok) throw new Error('Error al pagar')
-    return res.json()
-  }
-
-  const aplicarPromos = async (mesaId: string): Promise<CuentaMesa> => {
-    const res = await apiFetch(`${API_PEDIDOS}/mesas/${mesaId}/aplicar-promos`, { method: 'POST' })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.message || 'Error al aplicar promociones')
-    }
-    return res.json()
-  }
-
-  const atenderMesa = async (mesaId: string, meseroId: string, nombreCliente: string) => {
-    const res = await apiFetch(`${API_PEDIDOS}/mesas/${mesaId}/atender`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ meseroId, nombreCliente }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.message || 'Error al atender mesa')
-    }
-    return res.json()
-  }
-
-  const editarPedido = async (pedidoId: string, lineas: { productoId: string; cantidad: number }[], nota?: string) => {
-    const res = await apiFetch(`${API_PEDIDOS}/${pedidoId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lineas, nota }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.message || 'Error al editar pedido')
-    }
-    const updated = await res.json()
-    const p = { ...updated, id: String(updated.id) }
-    setPedidos(prev => prev.map(x => x.id === p.id ? p : x))
-    setPendientes(prev => prev.map(x => x.id === p.id ? p : x))
+    await fetchHoy()
     return p
   }
 
-  const crearPedido = async (mesaId: string, meseroId: string, lineas: { productoId: string; cantidad: number }[], nota?: string) => {
-    const res = await apiFetch(`${API_PEDIDOS}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mesaId, meseroId, lineas, nota }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.message || 'Error al crear pedido')
+  const cancelar = async (pedidoId: string) => {
+    await db.pedidos.update(Number(pedidoId), { estado: 'CANCELADO' })
+    const pedido = await db.pedidos.get(Number(pedidoId))
+
+    // Recalcular total cuenta
+    if (pedido) {
+      const cuenta = await db.cuentas.where({ mesaId: pedido.mesaId, jornadaFecha: pedido.jornadaFecha, estado: 'ABIERTA' }).first()
+      if (cuenta) {
+        const cuentaPedidos = await db.pedidos.where({ mesaId: pedido.mesaId, jornadaFecha: pedido.jornadaFecha }).toArray()
+        const cuentaTotal = cuentaPedidos
+          .filter((p: any) => p.estado !== 'CANCELADO')
+          .reduce((s: number, p: any) => s + (p.total || 0), 0)
+        await db.cuentas.update(cuenta.id, { total: cuentaTotal })
+      }
     }
-    return res.json()
+
+    await fetchHoy()
+    return { ...pedido, id: pedidoId }
   }
 
-  return { pedidos, pendientes, notificacion, notifDespachado, notifCuentaPagada, despachar, cancelar, editarPedido, getCuenta, pagarCuenta, aplicarPromos, atenderMesa, crearPedido, refetch }
+  const editarPedido = async (pedidoId: string, lineas: { productoId: string; cantidad: number }[], nota?: string) => {
+    const lineasCompletas = await Promise.all(lineas.map(async l => {
+      const prod = await db.productos.get(Number(l.productoId))
+      return {
+        id: String(Date.now() + Math.random()),
+        productoId: l.productoId,
+        nombre: prod?.nombre || '',
+        precioUnitario: prod?.precio || 0,
+        cantidad: l.cantidad,
+        total: (prod?.precio || 0) * l.cantidad,
+      }
+    }))
+
+    const total = lineasCompletas.reduce((s, l) => s + l.total, 0)
+    await db.pedidos.update(Number(pedidoId), { lineas: lineasCompletas, total, nota })
+
+    const pedido = await db.pedidos.get(Number(pedidoId))
+
+    // Recalcular total cuenta
+    if (pedido) {
+      const cuenta = await db.cuentas.where({ mesaId: pedido.mesaId, jornadaFecha: pedido.jornadaFecha, estado: 'ABIERTA' }).first()
+      if (cuenta) {
+        const cuentaPedidos = await db.pedidos.where({ mesaId: pedido.mesaId, jornadaFecha: pedido.jornadaFecha }).toArray()
+        const cuentaTotal = cuentaPedidos
+          .filter((p: any) => p.estado !== 'CANCELADO')
+          .reduce((s: number, p: any) => s + (p.total || 0), 0)
+        await db.cuentas.update(cuenta.id, { total: cuentaTotal })
+      }
+    }
+
+    const p = { ...pedido, id: pedidoId }
+    setPedidos(prev => prev.map(x => x.id === pedidoId ? p as Pedido : x))
+    setPendientes(prev => prev.map(x => x.id === pedidoId ? p as Pedido : x))
+    return p
+  }
+
+  const getCuenta = async (mesaId: string): Promise<CuentaMesa | null> => {
+    const hoy = getHoy()
+    const cuenta = await db.cuentas.where({ mesaId, jornadaFecha: hoy, estado: 'ABIERTA' }).first()
+    if (!cuenta) return null
+
+    const pedidosList = await db.pedidos.where({ mesaId, jornadaFecha: hoy }).toArray()
+    const activePedidos = pedidosList
+      .filter((p: any) => p.estado !== 'CANCELADO')
+      .map((p: any) => ({ ...p, id: String(p.id) }))
+
+    const total = activePedidos.reduce((s: number, p: any) => s + (p.total || 0), 0)
+
+    return {
+      ...cuenta,
+      id: String(cuenta.id),
+      total,
+      pedidos: activePedidos,
+    } as CuentaMesa
+  }
+
+  const pagarCuenta = async (mesaId: string) => {
+    const hoy = getHoy()
+    const cuenta = await db.cuentas.where({ mesaId, jornadaFecha: hoy, estado: 'ABIERTA' }).first()
+    if (!cuenta) throw new Error('No hay cuenta abierta')
+
+    await db.cuentas.update(cuenta.id, { estado: 'PAGADA' })
+
+    // Liberar mesa
+    await db.mesas.update(Number(mesaId), {
+      estado: 'LIBRE',
+      nombreCliente: undefined,
+      meseroId: undefined,
+      meseroNombre: undefined,
+      meseroColor: undefined,
+      meseroAvatar: undefined,
+    })
+
+    await fetchHoy()
+    return { ...cuenta, estado: 'PAGADA', id: String(cuenta.id) }
+  }
+
+  const aplicarPromos = async (mesaId: string): Promise<CuentaMesa> => {
+    const hoy = getHoy()
+    const cuenta = await db.cuentas.where({ mesaId, jornadaFecha: hoy, estado: 'ABIERTA' }).first()
+    if (!cuenta) throw new Error('No hay cuenta abierta')
+
+    const pedidosList = await db.pedidos.where({ mesaId, jornadaFecha: hoy }).toArray()
+    const activePedidos = pedidosList.filter((p: any) => p.estado !== 'CANCELADO' && !p.esCortesia)
+
+    // Obtener promociones activas
+    const promos = (await db.promociones.toArray()).filter((p: any) => p.activa)
+
+    let descuentoTotal = 0
+
+    for (const promo of promos) {
+      // Contar productos de compra en los pedidos
+      let cantidadCompra = 0
+      for (const pedido of activePedidos) {
+        for (const linea of (pedido.lineas || [])) {
+          if ((promo.compraProductoIds || []).includes(String(linea.productoId))) {
+            cantidadCompra += linea.cantidad
+          }
+        }
+      }
+
+      const vecesAplica = Math.floor(cantidadCompra / promo.compraCantidad)
+      if (vecesAplica > 0) {
+        const regalos = vecesAplica * promo.regaloCantidad
+        descuentoTotal += regalos * (promo.regaloProductoPrecio || 0)
+
+        // Crear pedido cortesia
+        const mesa = await db.mesas.get(Number(mesaId))
+        const ticketCount = await db.pedidos.where('jornadaFecha').equals(hoy).count()
+
+        await db.pedidos.add({
+          mesaId,
+          mesaNumero: mesa?.numero || 0,
+          mesaNombre: mesa?.nombre || '',
+          meseroId: cuenta.meseroId,
+          meseroNombre: cuenta.meseroNombre,
+          meseroColor: cuenta.meseroColor,
+          meseroAvatar: cuenta.meseroAvatar,
+          ticketDia: ticketCount + 1,
+          estado: 'DESPACHADO',
+          total: 0,
+          jornadaFecha: hoy,
+          esCortesia: true,
+          promoNombre: promo.nombre,
+          lineas: [{
+            id: String(Date.now()),
+            productoId: promo.regaloProductoId,
+            nombre: promo.regaloProductoNombre,
+            precioUnitario: 0,
+            cantidad: regalos,
+            total: 0,
+          }],
+          creadoEn: new Date().toISOString(),
+        })
+      }
+    }
+
+    if (descuentoTotal > 0) {
+      await db.cuentas.update(cuenta.id, {
+        descuentoPromo: descuentoTotal,
+        totalConDescuento: (cuenta.total || 0) - descuentoTotal,
+      })
+    }
+
+    await fetchHoy()
+    const updated = await getCuenta(mesaId)
+    return updated as CuentaMesa
+  }
+
+  const atenderMesa = async (mesaId: string, meseroId: string, nombreCliente: string) => {
+    const mesero = await db.trabajadores.get(Number(meseroId))
+    if (!mesero) throw new Error('Mesero no encontrado')
+
+    await db.mesas.update(Number(mesaId), {
+      estado: 'OCUPADA',
+      nombreCliente,
+      meseroId: meseroId,
+      meseroNombre: mesero.nombre,
+      meseroColor: mesero.color,
+      meseroAvatar: mesero.avatar,
+    })
+
+    // Crear cuenta
+    const hoy = getHoy()
+    const mesa = await db.mesas.get(Number(mesaId))
+    const existing = await db.cuentas.where({ mesaId, jornadaFecha: hoy, estado: 'ABIERTA' }).first()
+    if (!existing) {
+      await db.cuentas.add({
+        mesaId,
+        mesaNumero: mesa?.numero || 0,
+        mesaNombre: mesa?.nombre || '',
+        nombreCliente,
+        meseroId,
+        meseroNombre: mesero.nombre,
+        meseroColor: mesero.color,
+        meseroAvatar: mesero.avatar,
+        jornadaFecha: hoy,
+        total: 0,
+        estado: 'ABIERTA',
+        pedidos: [],
+        creadoEn: new Date().toISOString(),
+      })
+    }
+
+    return { ...mesa, id: mesaId }
+  }
+
+  return {
+    pedidos, pendientes, notificacion, notifDespachado, notifCuentaPagada,
+    despachar, cancelar, editarPedido, getCuenta, pagarCuenta,
+    aplicarPromos, atenderMesa, crearPedido, refetch,
+  }
 }

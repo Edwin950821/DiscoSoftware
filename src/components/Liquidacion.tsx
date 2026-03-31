@@ -216,6 +216,16 @@ export default function Liquidacion({
     }
   }
 
+  const handleTabDblClick = (id: string) => {
+    const liq = liquidaciones.find(l => l.trabajadorId === id)
+    if (!liq) return
+    const tieneVentas = liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0
+    if (tieneVentas) {
+      if (!confirm(`${liq.nombre} tiene ventas ingresadas. ¿Quitar de la liquidacion?`)) return
+    }
+    toggleTrabajador(id)
+  }
+
   const updateLiquidacion = (trabajadorId: string, updater: (liq: LiquidacionTrabajador) => LiquidacionTrabajador) => {
     setLiquidaciones(prev => prev.map(l => {
       if (l.trabajadorId !== trabajadorId) return l
@@ -305,17 +315,18 @@ export default function Liquidacion({
   }
 
   const cuadreDia = calcularCuadreDia(liquidaciones)
-  const todosConVentas = liquidaciones.length > 0 && liquidaciones.every(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
-  const formValidoLiq = sesion.trim() !== '' && todosConVentas && !fechaLiqDuplicada
+  const algunoConVentas = liquidaciones.length > 0 && liquidaciones.some(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
+  const formValidoLiq = sesion.trim() !== '' && algunoConVentas && !fechaLiqDuplicada
 
   const handleGuardarLiq = async () => {
     if (!formValidoLiq || guardandoLiq) return
     setGuardandoLiq(true)
     try {
 
-      const liqsConEfectivo = liquidaciones.map(liq => {
+      const liqsConVentas = liquidaciones.filter(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
+      const liqsConEfectivo = liqsConVentas.map(liq => {
         const c = calcularLiquidacion(liq)
-        return { ...liq, efectivoEntregado: c.efectivo }
+        return { ...liq, efectivoEntregado: liq.efectivoEntregado > 0 ? liq.efectivoEntregado : c.efectivo }
       })
       await guardarJornada({ sesion, fecha: fechaLiq, liquidaciones: liqsConEfectivo })
       setGuardandoLiq(false)
@@ -469,7 +480,7 @@ export default function Liquidacion({
             nuevoTrabajador={nuevoTrabajador} setNuevoTrabajador={setNuevoTrabajador}
             handleAgregarTrabajador={handleAgregarTrabajador}
             setSesion={setSesion} setFecha={setFechaLiq}
-            handleTabClick={handleTabClick}
+            handleTabClick={handleTabClick} handleTabDblClick={handleTabDblClick}
             updateEfectivoEntregado={updateEfectivoEntregado} updateTotalVentaManual={updateTotalVentaManual}
             updateLineaCantidad={updateLineaCantidad}
             updateTransaccion={updateTransaccion}
@@ -653,7 +664,7 @@ function LiquidacionNueva({
   trabajadores, liquidaciones, activeTrabajadorId,
   sesion, fecha, fechaDuplicada, guardando, formValido, cuadreDia,
   nuevoTrabajador, setNuevoTrabajador, handleAgregarTrabajador,
-  setSesion, setFecha, handleTabClick,
+  setSesion, setFecha, handleTabClick, handleTabDblClick,
   updateEfectivoEntregado, updateTotalVentaManual,
   updateLineaCantidad,
   updateTransaccion, addTransaccion, removeTransaccion,
@@ -670,6 +681,7 @@ function LiquidacionNueva({
   nuevoTrabajador: string; setNuevoTrabajador: (v: string) => void; handleAgregarTrabajador: () => void
   setSesion: (v: string) => void; setFecha: (v: string) => void
   handleTabClick: (id: string) => void
+  handleTabDblClick: (id: string) => void
   updateEfectivoEntregado: (tid: string, val: number) => void
   updateTotalVentaManual: (tid: string, total: number) => void
   updateLineaCantidad: (tid: string, productoId: string, cantidad: number) => void
@@ -749,7 +761,7 @@ function LiquidacionNueva({
           const sel = liquidaciones.some(l => l.trabajadorId === t.id)
           const isActive = activeTrabajadorId === t.id
           return (
-            <button key={t.id} onClick={() => handleTabClick(t.id)}
+            <button key={t.id} onClick={() => handleTabClick(t.id)} onDoubleClick={() => handleTabDblClick(t.id)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all text-xs ${isActive && sel ? 'ring-2 ring-offset-1 ring-offset-[#0A0A0A]' : ''}`}
               style={{
                 border: `2px solid ${sel ? t.color : 'rgba(255,255,255,0.1)'}`,
@@ -1192,7 +1204,7 @@ function LiquidacionNueva({
         <div className="mt-4">
           {!formValido && !guardando && (
             <p className="text-xs text-[#FF5050] mb-2 text-right">
-              {sesion.trim() === '' ? 'Falta el ID de sesion' : fechaDuplicada ? 'Ya existe una liquidacion para esta fecha' : ''}
+              {sesion.trim() === '' ? 'Falta el ID de sesion' : fechaDuplicada ? 'Ya existe una liquidacion para esta fecha' : 'Al menos un trabajador debe tener productos ingresados'}
             </p>
           )}
           <div className="flex justify-end">
@@ -1588,7 +1600,13 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
 
   const jornadasFiltradas = useMemo(() => {
     if (!desde || !hasta) return []
-    return jornadas.filter(j => j.fecha >= desde && j.fecha <= hasta).sort((a, b) => a.fecha.localeCompare(b.fecha))
+    return jornadas.filter(j => j.fecha >= desde && j.fecha <= hasta).sort((a, b) => {
+      const f = a.fecha.localeCompare(b.fecha)
+      if (f !== 0) return f
+      const na = Number(a.sesion.match(/(\d+)/)?.[1] || 0)
+      const nb = Number(b.sesion.match(/(\d+)/)?.[1] || 0)
+      return na - nb
+    })
   }, [jornadas, desde, hasta])
 
   const fechasDisponibles = useMemo(() => {

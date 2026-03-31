@@ -68,25 +68,40 @@ Abre en `http://localhost:5173`
 src/
 ├── components/
 │   ├── ui/                 Btn, Card, Input, Badge, DateRangeFilter
-│   ├── Login.tsx           Autenticacion con roles (Admin/Dueno)
-│   ├── Dashboard.tsx       KPIs, graficos, ranking meseros
+│   ├── Login.tsx           Autenticacion con roles (Admin/Dueno/Mesero)
+│   ├── Dashboard.tsx       KPIs, graficos mensuales, pie de pagos, ranking trabajadores, top productos
 │   ├── Liquidacion.tsx     Liquidacion diaria, semanal, inventario, comparativo
 │   ├── Jornadas.tsx        Calendario de dias de apertura
 │   ├── MesasBillar.tsx     Gestion de mesas de billar y partidas
+│   ├── Ventas.tsx          Cuentas por mesa, historial de pedidos y pagos
+│   ├── PedidosAdmin.tsx    Vista admin: pedidos entrantes en tiempo real
+│   ├── PedidosMesero.tsx   Vista mesero: toma de pedidos por mesa
 │   ├── Productos.tsx       Catalogo de productos con precios
-│   └── Configuracion.tsx   Trabajadores, seguridad y modulos
+│   ├── Configuracion.tsx   Trabajadores, seguridad y modulos
+│   ├── ErrorBoundary.tsx   Captura de errores de React
+│   ├── TerminosCondiciones.tsx  Pagina legal
+│   └── PoliticaPrivacidad.tsx   Pagina legal
 ├── hooks/
 │   ├── useProductos.ts     CRUD productos via API
 │   ├── useTrabajadores.ts  CRUD meseros/trabajadores via API
-│   ├── useJornadas.ts      Jornadas y liquidaciones via API
+│   ├── useJornadas.ts      Jornadas y liquidaciones (Dexie + calcularCuadreDia)
 │   ├── useInventarios.ts   Inventario semanal via API
 │   ├── useComparativos.ts  Comparativo conteo vs tiquets via API
+│   ├── usePromociones.ts   CRUD promociones (compra X lleva Y)
+│   ├── useMesas.ts         Gestion de mesas y asignacion de meseros
+│   ├── usePedidos.ts       Pedidos en tiempo real con Socket.IO
+│   ├── useVentas.ts        Cuentas por mesa, pagos y descuentos
+│   ├── useJornadaDiaria.ts Resumen del dia: ventas + billar + cierre
 │   └── useBillar.ts        Mesas de billar y partidas via API
 ├── lib/
 │   ├── config.ts           URL del API + fetch wrapper con JWT
+│   ├── db.ts               Base de datos local Dexie (IndexedDB)
+│   ├── socket.ts           Conexion Socket.IO (notificaciones tiempo real)
 │   ├── firebase.ts         Configuracion Firebase
-│   ├── utils.ts            fmtCOP, fmtFull, calcularLiquidacion
-│   └── initFirebase.ts     Datos semilla
+│   ├── utils.ts            fmtCOP, fmtFull, calcularLiquidacion, calcularCuadreDia
+│   ├── sound.ts            Sonidos de notificacion
+│   ├── notification.ts     Notificaciones del navegador
+│   └── seedData.ts         Datos semilla
 ├── types/
 │   └── index.ts            Tipos TypeScript
 └── App.tsx                 Layout, sidebar, routing por estado
@@ -96,13 +111,17 @@ src/
 
 | Modulo | Descripcion |
 |---|---|
-| **Liquidacion diaria** | Registro de ventas por trabajador con medios de pago, vales, cortesias y gastos |
-| **Liquidacion semanal** | Corte manual por rango de fechas con desglose por jornada y totales |
+| **Liquidacion diaria** | Registro de ventas por trabajador con medios de pago, vales, cortesias y gastos. Cuadre de caja automatico |
+| **Liquidacion semanal** | Corte por rango de fechas con desglose por jornada, medios de pago y totales acumulados |
 | **Inventario** | Conteo semanal: inv. inicial, entradas, inv. fisico, saldo y valor total |
 | **Comparativo** | Ventas segun conteo vs ventas segun tiquets con diferencia |
 | **Mesas de billar** | Control de partidas activas, tiempo, cobro por hora y traslados |
 | **Dias de apertura** | Calendario mensual con sesiones programadas |
-| **Dashboard** | KPIs, graficos de ventas, ranking de meseros y top productos |
+| **Dashboard** | KPIs (vendido, recibido, gastos, saldo global), grafico mensual, pie de medios de pago, ranking de trabajadores y top productos |
+| **Pedidos (Admin)** | Pedidos entrantes en tiempo real via Socket.IO, despacho y notificaciones sonoras |
+| **Pedidos (Mesero)** | Toma de pedidos por mesa desde dispositivo movil del mesero |
+| **Ventas** | Cuentas por mesa, historial de pedidos, descuentos por promocion y cierre de cuenta |
+| **Promociones** | Reglas tipo "compra X unidades, lleva Y gratis" con descuento automatico |
 | **Configuracion** | CRUD de trabajadores con usuario/contrasena, productos y seguridad |
 
 ## Vistas y acceso
@@ -114,13 +133,17 @@ src/
 | Liquidacion (diaria, semanal, inventario, comparativo) | Solo Admin |
 | Dias de Apertura | Solo Admin |
 | Mesas de Billar | Solo Admin |
+| Ventas (cuentas por mesa) | Solo Admin |
+| Pedidos Admin (entrantes en tiempo real) | Solo Admin |
+| Pedidos Mesero (toma de pedidos) | Solo Mesero |
 | Productos | Solo Admin |
 | Configuracion | Solo Admin |
 
 ## Roles
 
-- **ADMINISTRADOR**: Acceso completo. Ingresa liquidaciones, gestiona productos, trabajadores, inventario y mesas.
+- **ADMINISTRADOR**: Acceso completo. Ingresa liquidaciones, gestiona productos, trabajadores, inventario, mesas y pedidos.
 - **DUENO**: Solo ve el Dashboard con KPIs y graficos.
+- **MESERO**: Toma pedidos desde su dispositivo movil, asignado a mesas por el admin.
 
 ## Tema
 
@@ -134,6 +157,43 @@ Tema oscuro con acentos dorados:
 | Exito/Teal | `#4ECDC4` |
 | Datos/Amarillo | `#FFE66D` |
 | Error/Rojo | `#FF5050` |
+
+## Formulas de liquidacion (cuadre de caja)
+
+Las formulas replican exactamente la logica del Excel de liquidacion del negocio.
+
+### Por trabajador (`calcularLiquidacion`)
+
+```
+Efectivo esperado = Venta Total - Datafono - QR - Nequi - Vales - Cortesias - Gastos
+Total             = Gastos + Datafono + QR + Nequi + Vales + Cortesias + Efectivo Entregado
+Saldo             = Total - Venta Total
+```
+
+- `Saldo > 0` = sobro plata (a favor del negocio)
+- `Saldo < 0` = falto plata (en contra)
+- `Saldo = 0` = cuadre perfecto
+
+### Por jornada (`calcularCuadreDia`)
+
+Agrega los valores de todos los trabajadores de la noche:
+
+```
+Venta Total  = suma(trabajadores.totalVenta)
+Total        = Gastos + Datafono + QR + Nequi + Vales + Cortesias + Efectivo
+Saldo        = Total - Venta Total
+```
+
+### Cascade de calculo (tiempo real)
+
+Al cambiar cantidad o producto en una linea:
+
+```
+1. linea.total       = precioUnitario x cantidad
+2. trabajador.totalVenta = suma(lineas.total)
+```
+
+Los campos derivados de nivel Jornada (`totalVendido`, `totalRecibido`, `saldo`, `cortesias`, `gastos`, `pagos`) se computan con `calcularCuadreDia()` al guardar y al leer de la base de datos.
 
 ## Seguridad
 
