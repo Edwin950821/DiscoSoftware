@@ -21,6 +21,123 @@ function formatMoney(n: number): string {
   return n.toLocaleString('es-CO')
 }
 
+const printLogoUrl = `${window.location.origin}/assets/M05.png`
+
+function printHTML(title: string, body: string) {
+  const w = window.open('', '_blank', 'width=900,height=700')
+  if (!w) return
+  w.document.write(`<html><head><title>${title}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; padding: 28px 32px; color: #1a1a1a; background: #fff; }
+  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 3px solid #CDA52F; }
+  .header img { width: 56px; height: 56px; object-fit: contain; }
+  .header-text h1 { font-size: 18px; color: #1a1a1a; font-weight: 700; margin-bottom: 2px; }
+  .header-text h1 span { color: #CDA52F; }
+  .header-text .sub { font-size: 10px; color: #888; }
+  h2 { font-size: 11px; margin: 18px 0 8px; color: #CDA52F; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; border-bottom: 1px solid #e8d9a8; padding-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  th, td { padding: 6px 10px; text-align: right; }
+  th { font-size: 9px; color: #997a1e; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #CDA52F; background: #fdf8eb; }
+  td { border-bottom: 1px solid #f0ece0; color: #333; }
+  td:first-child, th:first-child { text-align: left; }
+  tr:nth-child(even) td { background: #fdfcf8; }
+  .bold { font-weight: 700; color: #1a1a1a; }
+  .gold { color: #997a1e; font-weight: 700; }
+  .total-row td { border-top: 2px solid #CDA52F; font-weight: 700; font-size: 12px; padding-top: 8px; color: #997a1e; background: #fdf8eb !important; }
+  .saldo-row td { border-top: 3px solid #CDA52F; font-weight: 700; font-size: 13px; padding-top: 10px; background: #fdf8eb !important; }
+  .green { color: #0a7a5a; }
+  .red { color: #c62828; }
+  .blue { color: #1565c0; }
+  .footer { margin-top: 24px; padding-top: 10px; border-top: 2px solid #CDA52F; text-align: center; font-size: 9px; color: #aaa; }
+  .footer span { color: #CDA52F; font-weight: 600; }
+  @media print { body { padding: 16px 20px; } @page { margin: 10mm; } }
+</style></head><body>
+${body}
+<div class="footer"><span>Monastery Club</span> · Baranoa, Colombia · Sistema de Gestion</div>
+<script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/script>
+</body></html>`)
+  w.document.close()
+}
+
+function saldoColor(v: number) { return v === 0 ? 'blue' : v > 0 ? 'green' : 'red' }
+
+function printJornada(j: Jornada) {
+  const esperado = j.totalVendido - j.cortesias - j.gastos
+  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion Diaria — <span>${j.sesion}</span></h1><p class="sub">${j.fecha}</p></div></div>`
+
+  body += '<h2>Meseros</h2><table><thead><tr><th>Nombre</th><th>Venta</th><th>Efectivo</th><th>Datafono</th><th>QR</th><th>Nequi</th><th>Vales</th><th>Cortesias</th><th>Gastos</th><th>Saldo</th></tr></thead><tbody>'
+  for (const liq of j.liquidaciones || []) {
+    const c = calcularLiquidacion(liq)
+    body += `<tr>
+      <td>${liq.nombre}</td><td class="gold">${fmtFull(c.totalVenta)}</td>
+      <td>${fmtFull(liq.efectivoEntregado ?? c.efectivo)}</td>
+      <td>${c.totalDatafono ? fmtFull(c.totalDatafono) : '-'}</td>
+      <td>${c.totalQR ? fmtFull(c.totalQR) : '-'}</td>
+      <td>${c.totalNequi ? fmtFull(c.totalNequi) : '-'}</td>
+      <td>${c.totalVales ? fmtFull(c.totalVales) : '-'}</td>
+      <td>${c.totalCortesias ? fmtFull(c.totalCortesias) : '-'}</td>
+      <td>${c.totalGastos ? fmtFull(c.totalGastos) : '-'}</td>
+      <td class="${saldoColor(c.saldo)} bold">${fmtFull(c.saldo)}</td>
+    </tr>`
+  }
+  body += '</tbody></table>'
+
+  body += '<h2>Cuadre de Caja</h2><table>'
+  body += `<tr><td>Total Vendido</td><td class="gold">${fmtFull(j.totalVendido)}</td></tr>`
+  body += `<tr><td>(-) Cortesias</td><td>${j.cortesias ? fmtFull(j.cortesias) : '-'}</td></tr>`
+  body += `<tr><td>(-) Gastos</td><td>${j.gastos ? fmtFull(j.gastos) : '-'}</td></tr>`
+  body += `<tr class="total-row"><td>Esperado</td><td>${fmtFull(esperado)}</td></tr>`
+  body += `<tr><td>Total Recibido</td><td class="bold">${fmtFull(j.totalRecibido)}</td></tr>`
+  body += `<tr class="saldo-row"><td>SALDO</td><td class="${saldoColor(j.saldo)}">${fmtFull(j.saldo)}</td></tr>`
+  body += '</table>'
+
+  printHTML(`Liquidacion ${j.sesion}`, body)
+}
+
+function printSemanal(jornadasVisibles: Jornada[], d: ReturnType<typeof calcSemanaData>) {
+  const f0 = jornadasVisibles[0]?.fecha || ''
+  const fN = jornadasVisibles[jornadasVisibles.length - 1]?.fecha || ''
+  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion <span>Semanal</span></h1><p class="sub">${f0} al ${fN} · ${jornadasVisibles.length} jornadas</p></div></div>`
+
+  const cols = jornadasVisibles.map(j => `<th>${j.sesion}<br/><span style="font-weight:normal;font-size:9px">${j.fecha}</span></th>`).join('')
+  const hasTotal = jornadasVisibles.length > 1
+
+  body += '<h2>Meseros</h2><table><thead><tr><th>Nombre</th>' + cols + (hasTotal ? '<th>Liq. Semana</th>' : '') + '</tr></thead><tbody>'
+  for (const t of d.trabajadores) {
+    body += `<tr><td>${t.nombre}</td>`
+    for (const v of t.totales) body += `<td>${v > 0 ? fmtCOP(v) : '-'}</td>`
+    if (hasTotal) body += `<td class="bold">${fmtCOP(t.totales.reduce((a, v) => a + v, 0))}</td>`
+    body += '</tr>'
+  }
+  body += `<tr class="total-row"><td>Venta Total</td>`
+  for (const r of d.resumen) body += `<td>${fmtCOP(r.ventaTotal)}</td>`
+  if (hasTotal) body += `<td>${fmtCOP(d.tot.ventaTotal)}</td>`
+  body += '</tr></tbody></table>'
+
+  body += '<h2>Medios de Pago & Deducciones</h2><table><thead><tr><th></th>' + cols + (hasTotal ? '<th>Total</th>' : '') + '</tr></thead><tbody>'
+  const filas = [
+    { key: 'gastos', label: 'Gastos' }, { key: 'datafono', label: 'Datafono' },
+    { key: 'qr', label: 'QR' }, { key: 'nequi', label: 'Nequi' },
+    { key: 'vales', label: 'Vales' }, { key: 'cortesias', label: 'Cortesias' },
+    { key: 'efectivo', label: 'Efectivo Entregado' },
+    { key: 'totalRecibido', label: 'Total' },
+  ]
+  for (const f of filas) {
+    const isTotal = f.key === 'totalRecibido'
+    body += `<tr${isTotal ? ' class="total-row"' : ''}><td>${f.label}</td>`
+    for (const r of d.resumen) body += `<td>${fmtCOP((r as any)[f.key] || 0)}</td>`
+    if (hasTotal) body += `<td class="bold">${fmtCOP((d.tot as any)[f.key] || 0)}</td>`
+    body += '</tr>'
+  }
+  body += `<tr class="saldo-row"><td>Saldo</td>`
+  for (const r of d.resumen) body += `<td class="${saldoColor(r.saldo)}">${fmtCOP(r.saldo)}</td>`
+  if (hasTotal) body += `<td class="${saldoColor(d.tot.saldo)}">${fmtCOP(d.tot.saldo)}</td>`
+  body += '</tr></tbody></table>'
+
+  printHTML(`Liquidacion Semanal ${f0} - ${fN}`, body)
+}
+
 function MoneyInput({ value, onChange, label, placeholder, className = '' }: {
   value: number; onChange: (n: number) => void; label?: string; placeholder?: string; className?: string
 }) {
@@ -620,7 +737,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                               {c.totalGastos > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Gast: {fmtFull(c.totalGastos)}</span>}
                             </div>
                             <div className="ml-9 mt-1.5 flex justify-between text-xs">
-                              <span className="text-white/30 font-medium">Saldo: <span className={`font-bold ${c.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(c.saldo)}</span></span>
+                              <span className="text-white/30 font-medium">Saldo: <span className={`font-bold ${c.saldo === 0 ? 'text-[#60A5FA]' : c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(c.saldo)}</span></span>
                             </div>
                           </div>
                         )
@@ -632,11 +749,14 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                         <div><p className="text-white/30 mb-0.5">Vendido</p><p className="text-[#FFE66D] font-bold">{fmtFull(j.totalVendido)}</p></div>
                         <div><p className="text-white/30 mb-0.5">Esperado</p><p className="text-white font-medium">{fmtFull(esperado)}</p></div>
                         <div><p className="text-white/30 mb-0.5">Recibido</p><p className="text-[#4ECDC4] font-bold">{fmtFull(j.totalRecibido)}</p></div>
-                        <div><p className="text-white/30 mb-0.5">Saldo</p><p className={`font-bold text-base ${j.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(j.saldo)}</p></div>
+                        <div><p className="text-white/30 mb-0.5">Saldo</p><p className={`font-bold text-base ${j.saldo === 0 ? 'text-[#60A5FA]' : j.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(j.saldo)}</p></div>
                       </div>
                     </div>
 
-                    <div className="flex justify-end mt-3">
+                    <div className="flex justify-end gap-2 mt-3">
+                      <Btn size="sm" variant="ghost" onClick={() => printJornada(j)} className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Imprimir
+                      </Btn>
                       {confirmDelete === j.id ? (
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-[#FF5050]">Seguro?</span>
@@ -796,9 +916,9 @@ function LiquidacionNueva({
                 <span className="text-[10px] text-white/40">Recibido</span>
                 <span className="text-xs text-[#4ECDC4] font-bold">{fmtCOP(cuadreDia.totalRecibido)}</span>
               </div>
-              <div className={`flex gap-2 items-center shrink-0 px-3 py-2 rounded-lg border ${cuadreDia.saldo >= 0 ? 'border-[#4ECDC4]/15 bg-[#4ECDC4]/[0.03]' : 'border-[#FF5050]/15 bg-[#FF5050]/[0.03]'}`}>
+              <div className={`flex gap-2 items-center shrink-0 px-3 py-2 rounded-lg border ${cuadreDia.saldo === 0 ? 'border-[#60A5FA]/15 bg-[#60A5FA]/[0.03]' : cuadreDia.saldo > 0 ? 'border-[#4ECDC4]/15 bg-[#4ECDC4]/[0.03]' : 'border-[#FF5050]/15 bg-[#FF5050]/[0.03]'}`}>
                 <span className="text-[10px] text-white/40">Saldo</span>
-                <span className={`text-xs font-bold ${cuadreDia.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(cuadreDia.saldo)}</span>
+                <span className={`text-xs font-bold ${cuadreDia.saldo === 0 ? 'text-[#60A5FA]' : cuadreDia.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(cuadreDia.saldo)}</span>
               </div>
             </div>
           )}
@@ -818,7 +938,7 @@ function LiquidacionNueva({
                   <div className="ml-9 flex items-center justify-between">
                     <span className="text-xs text-[#FFE66D] font-bold">{fmtCOP(c.totalVenta)}</span>
                     {c.totalVenta > 0 && (
-                      <span className={`text-[10px] font-bold ${c.saldo === 0 ? 'text-[#4ECDC4]' : c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>
+                      <span className={`text-[10px] font-bold ${c.saldo === 0 ? 'text-[#60A5FA]' : c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>
                         {c.saldo === 0 ? '\u2713' : fmtCOP(c.saldo)}
                       </span>
                     )}
@@ -836,7 +956,7 @@ function LiquidacionNueva({
                   <div className="border-t border-white/5 my-1" />
                   <div className="flex justify-between font-bold">
                     <span className="text-white/60">Saldo</span>
-                    <span className={cuadreDia.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}>{fmtFull(cuadreDia.saldo)}</span>
+                    <span className={cuadreDia.saldo === 0 ? 'text-[#60A5FA]' : cuadreDia.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}>{fmtFull(cuadreDia.saldo)}</span>
                   </div>
                 </div>
               </div>
@@ -1597,6 +1717,7 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [semanaActiva, setSemanaActiva] = useState<number | null>(null)
+  const [jornadaActivaId, setJornadaActivaId] = useState<string | null>(null)
 
   const jornadasFiltradas = useMemo(() => {
     if (!desde || !hasta) return []
@@ -1626,11 +1747,12 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
   }, [jornadas])
 
   const jornadasVisibles = useMemo(() => {
+    if (jornadaActivaId) return jornadasFiltradas.filter(j => j.id === jornadaActivaId)
     if (semanaActiva === null || !fechasDisponibles[semanaActiva]) return jornadasFiltradas
     const grupo = fechasDisponibles[semanaActiva]
     const ids = new Set(grupo.map(j => j.id))
     return jornadasFiltradas.filter(j => ids.has(j.id))
-  }, [jornadasFiltradas, semanaActiva, fechasDisponibles])
+  }, [jornadasFiltradas, semanaActiva, jornadaActivaId, fechasDisponibles])
 
   const d = useMemo(() => jornadasVisibles.length > 0 ? calcSemanaData(jornadasVisibles) : null, [jornadasVisibles])
 
@@ -1666,19 +1788,26 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
               if (!(f0 <= hasta && fN >= desde)) return null
               const isActive = semanaActiva === gi
               return (
-                <button key={gi} onClick={() => setSemanaActiva(isActive ? null : gi)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] transition-all ${isActive ? 'border-[#CDA52F] bg-[#CDA52F]/25 text-[#CDA52F] ring-1 ring-[#CDA52F]/40' : 'border-[#CDA52F]/50 bg-[#CDA52F]/10 text-[#CDA52F] hover:bg-[#CDA52F]/20'}`}>
-                  <span className="font-bold">S{gi + 1}</span>
-                  <span className="text-white/30">|</span>
-                  {grupo.map((j, ji) => {
-                    const dt = new Date(j.fecha + 'T12:00:00')
-                    return (
-                      <span key={ji} className="px-1 py-0.5 rounded text-[10px] text-[#CDA52F]">
-                        {diasNombre[dt.getDay()]} {dt.getDate()}
-                      </span>
-                    )
-                  })}
-                </button>
+                <div key={gi} className="flex flex-col gap-1.5">
+                  <button onClick={() => { setJornadaActivaId(null); setSemanaActiva(isActive ? null : gi) }}
+                    className={`text-[10px] font-bold tracking-wider transition-all ${isActive && !jornadaActivaId ? 'text-[#CDA52F]' : 'text-white/25 hover:text-[#CDA52F]/60'}`}>
+                    S{gi + 1}
+                  </button>
+                  <div className="flex items-center rounded-xl overflow-hidden border border-[#CDA52F]/25"
+                    style={{ boxShadow: isActive ? '0 0 12px rgba(205,165,47,0.12)' : 'none' }}>
+                    {grupo.map((j, ji) => {
+                      const dt = new Date(j.fecha + 'T12:00:00')
+                      const isJornadaActive = jornadaActivaId === j.id
+                      const isLast = ji === grupo.length - 1
+                      return (
+                        <button key={ji} onClick={() => { setSemanaActiva(gi); setJornadaActivaId(isJornadaActive ? null : j.id) }}
+                          className={`px-3.5 py-2 text-center transition-all text-[11px] font-medium ${!isLast ? 'border-r border-[#CDA52F]/15' : ''} ${isJornadaActive ? 'bg-[#CDA52F]/20 text-[#CDA52F]' : isActive && !jornadaActivaId ? 'bg-[#CDA52F]/10 text-[#CDA52F]/80' : 'bg-white/[0.02] text-white/35 hover:bg-[#CDA52F]/10 hover:text-[#CDA52F]/70'}`}>
+                          {diasNombre[dt.getDay()]} {dt.getDate()}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               )
             })}
           </div>
@@ -1781,14 +1910,14 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
                     const saldoTotal = d.tot.saldo
                     return (
                       <tr className="border-t-2 border-white/20">
-                        <td className="py-3 pr-4 font-bold text-sm" style={{ color: saldoTotal >= 0 ? '#4ECDC4' : '#FF5050' }}>Saldo</td>
+                        <td className="py-3 pr-4 font-bold text-sm" style={{ color: saldoTotal === 0 ? '#4ECDC4' : saldoTotal > 0 ? '#4ECDC4' : '#FF5050' }}>Saldo</td>
                         {saldoVals.map((v, i) => (
-                          <td key={i} className="text-right py-3 px-3 font-bold" style={{ color: v >= 0 ? '#4ECDC4' : '#FF5050' }}>
+                          <td key={i} className="text-right py-3 px-3 font-bold" style={{ color: v === 0 ? '#60A5FA' : v > 0 ? '#4ECDC4' : '#FF5050' }}>
                             {fmtCOP(v)}
                           </td>
                         ))}
                         {jornadasVisibles.length > 1 && (
-                          <td className="text-center py-3 px-3 font-bold text-sm bg-white/[0.02]" style={{ color: saldoTotal >= 0 ? '#4ECDC4' : '#FF5050' }}>
+                          <td className="text-center py-3 px-3 font-bold text-sm bg-white/[0.02]" style={{ color: saldoTotal === 0 ? '#60A5FA' : saldoTotal > 0 ? '#4ECDC4' : '#FF5050' }}>
                             {fmtCOP(saldoTotal)}
                           </td>
                         )}
@@ -1799,6 +1928,12 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
               </table>
             </div>
           </Card>
+
+          <div className="flex justify-end mt-4">
+            <Btn variant="ghost" onClick={() => printSemanal(jornadasVisibles, d)} className="flex items-center gap-1.5">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Imprimir Liquidacion
+            </Btn>
+          </div>
         </div>
       )}
     </div>

@@ -113,7 +113,7 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
           { label: 'Total Vendido', value: totalVendido, color: '#CDA52F' },
           { label: 'Total Recibido', value: totalRecibido, color: '#4ECDC4' },
           { label: 'Gastos + Cortesias', value: totalGastos, color: '#FFE66D' },
-          { label: 'Saldo Global', value: saldoGlobal, color: saldoGlobal >= 0 ? '#4ECDC4' : '#FF5050' },
+          { label: 'Saldo Global', value: saldoGlobal, color: saldoGlobal === 0 ? '#60A5FA' : saldoGlobal > 0 ? '#4ECDC4' : '#FF5050' },
         ].map(k => (
           <Card key={k.label} className="!p-3 sm:!p-4">
             <p className="text-[10px] sm:text-[11px] text-white/40 mb-1 sm:mb-2">{k.label}</p>
