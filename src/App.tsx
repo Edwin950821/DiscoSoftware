@@ -163,7 +163,7 @@ export default function App() {
           </div>
         </header>
         <main className="p-4 sm:p-6">
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-white/30 text-sm">Cargando...</div>}><MesasBillar /></Suspense>
+          <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}><MesasBillar /></Suspense>
         </main>
       </div>
     )
@@ -327,7 +327,7 @@ export default function App() {
       )}
 
 <main className="flex-1 p-4 lg:p-6 pt-16 lg:pt-6 pb-20 lg:pb-6 overflow-auto">
-        {premiumEnabled && view === 'dashboard' && <Suspense fallback={<div className="flex items-center justify-center h-64 text-white/30 text-sm">Cargando...</div>}><Dashboard jornadas={jornadas} trabajadores={trabajadores} /></Suspense>}
+        {premiumEnabled && view === 'dashboard' && <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}><Dashboard jornadas={jornadas} trabajadores={trabajadores} /></Suspense>}
         {isAdmin && view === 'liquidacion' && (
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
@@ -363,7 +363,7 @@ export default function App() {
         )}
         {premiumEnabled && isAdmin && view === 'pedidos' && <PedidosAdmin />}
         {premiumEnabled && isAdmin && view === 'ventas' && <Ventas />}
-        {isAdmin && view === 'billar' && <Suspense fallback={<div className="flex items-center justify-center h-64 text-white/30 text-sm">Cargando...</div>}><MesasBillar /></Suspense>}
+        {isAdmin && view === 'billar' && <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}><MesasBillar /></Suspense>}
         {view === 'productos' && <Productos productos={productos} agregar={agregarProd} actualizar={actualizarProd} eliminar={eliminarProd} />}
         {view === 'configuracion' && (
           <Configuracion accessToken={accessToken} trabajadores={trabajadores}
