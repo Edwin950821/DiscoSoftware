@@ -56,5 +56,7 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export function getHoy(): string {
-  return new Date().toISOString().slice(0, 10)
+  const now = new Date()
+  const col = new Date(now.getTime() - 5 * 60 * 60 * 1000)
+  return col.toISOString().slice(0, 10)
 }
