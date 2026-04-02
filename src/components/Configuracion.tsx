@@ -40,7 +40,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
   const [pwMsg, setPwMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [pwLoading, setPwLoading] = useState(false)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
-  const [showCreatedModal, setShowCreatedModal] = useState<{ nombre: string; username: string } | null>(null)
+  const [showCreatedModal, setShowCreatedModal] = useState<{ nombre: string; username?: string } | null>(null)
   const [showDeletedModal, setShowDeletedModal] = useState<string | null>(null)
 
   const handleAgregar = async () => {
@@ -50,16 +50,15 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
     setCrearError('')
 
     if (!nombre) { setCrearError('El nombre es requerido'); return }
-    if (!username) { setCrearError('El usuario es requerido'); return }
-    if (username.length < 2) { setCrearError('El usuario debe tener al menos 2 caracteres'); return }
-    if (!password || password.length < 6) { setCrearError('La contrasena debe tener al menos 6 caracteres'); return }
+    if (username && username.length < 2) { setCrearError('El usuario debe tener al menos 2 caracteres'); return }
+    if (username && (!password || password.length < 6)) { setCrearError('Si asignas usuario, la contrasena debe tener al menos 6 caracteres'); return }
 
     setCreando(true)
     try {
       const color = COLORES_TRABAJADOR[trabajadores.length % COLORES_TRABAJADOR.length]
       const avatar = nombre.slice(0, 2).toUpperCase()
-      await agregarTrabajador({ nombre, color, avatar, activo: true, username, password })
-      setShowCreatedModal({ nombre, username })
+      await agregarTrabajador({ nombre, color, avatar, activo: true, username: username || undefined, password: password || undefined })
+      setShowCreatedModal({ nombre, username: username || undefined })
       setNuevoNombre(''); setNuevoUsername(''); setNuevoPassword('')
     } catch (e: any) {
       setCrearError(e.message || 'Error al crear trabajador')
@@ -170,17 +169,19 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
               <svg className="w-7 h-7 text-[#4ECDC4]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
             <p className="text-white font-semibold text-lg mb-1">Trabajador creado</p>
-            <p className="text-sm text-white/50 mb-4">{showCreatedModal.nombre} ya puede iniciar sesion</p>
-            <div className="bg-white/5 rounded-lg p-3 mb-4 text-left space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-xs text-white/40">Usuario</span>
-                <span className="text-sm text-white font-medium">{showCreatedModal.username}</span>
+            <p className="text-sm text-white/50 mb-4">{showCreatedModal.nombre} {showCreatedModal.username ? 'ya puede iniciar sesion' : 'agregado a la nomina'}</p>
+            {showCreatedModal.username && (
+              <div className="bg-white/5 rounded-lg p-3 mb-4 text-left space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-xs text-white/40">Usuario</span>
+                  <span className="text-sm text-white font-medium">{showCreatedModal.username}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-white/40">Contrasena</span>
+                  <span className="text-sm text-white font-medium tracking-widest">******</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-xs text-white/40">Contrasena</span>
-                <span className="text-sm text-white font-medium tracking-widest">******</span>
-              </div>
-            </div>
+            )}
             <Btn onClick={() => setShowCreatedModal(null)} className="w-full">Aceptar</Btn>
           </div>
         </div>
@@ -232,14 +233,15 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
                   </div>
                 )}
               </div>
+              <p className="text-[10px] text-white/25 mt-1">Opcional: asigna usuario y contrasena solo si el trabajador necesita hacer login como mesero</p>
               <div className="flex flex-col sm:flex-row gap-2">
                 <div className="flex-1">
                   <Input value={nuevoUsername} onChange={e => setNuevoUsername(e.target.value)}
-                    placeholder="ej: gabriel" label="Usuario (login)" />
+                    placeholder="ej: gabriel" label="Usuario (opcional)" />
                 </div>
                 <div className="flex-1">
                   <Input value={nuevoPassword} onChange={e => setNuevoPassword(e.target.value)}
-                    placeholder="Min 6 caracteres" label="Contrasena" type="password" />
+                    placeholder="Min 6 caracteres" label="Contrasena (opcional)" type="password" />
                 </div>
               </div>
               {crearError && (
@@ -247,7 +249,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
                   {crearError}
                 </div>
               )}
-              <Btn onClick={handleAgregar} disabled={creando || !nuevoNombre.trim() || !nuevoUsername.trim() || nuevoPassword.length < 6}>
+              <Btn onClick={handleAgregar} disabled={creando || !nuevoNombre.trim()}>
                 {creando ? 'Creando...' : 'Agregar Trabajador'}
               </Btn>
             </div>
