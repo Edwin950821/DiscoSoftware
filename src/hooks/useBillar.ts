@@ -128,6 +128,27 @@ export function useBillar() {
     return { ...partida, id: String(partida.id), mesaBillarId: String(partida.mesaBillarId) }
   }
 
+  const editarPartida = async (id: string, data: { nombreCliente?: string; horasCobradas?: number; total?: number }) => {
+    const res = await apiFetch(`${API_BILLAR}/partidas/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || 'Error al editar partida')
+    }
+    await refetch()
+  }
+
+  const eliminarPartida = async (id: string) => {
+    const res = await apiFetch(`${API_BILLAR}/partidas/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || 'Error al eliminar partida')
+    }
+    await refetch()
+  }
+
   const partidasFinalizadas = useMemo(() => partidas.filter(p => p.estado === 'FINALIZADA'), [partidas])
   const totalBillarHoy = useMemo(() => partidasFinalizadas.reduce((s, p) => s + (p.total || 0), 0), [partidasFinalizadas])
 
@@ -141,6 +162,8 @@ export function useBillar() {
     iniciarPartida,
     finalizarPartida,
     trasladarPartida,
+    editarPartida,
+    eliminarPartida,
     refetch,
   }
 }

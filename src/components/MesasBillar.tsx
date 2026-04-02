@@ -3,14 +3,15 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import { Card } from './ui/Card'
 import { useBillar } from '../hooks/useBillar'
 import { useJornadaDiaria } from '../hooks/useJornadaDiaria'
-import type { MesaBillar } from '../types'
+import type { MesaBillar, PartidaBillar } from '../types'
 
 const fmtCOP = (n: number) => '$' + Number(n || 0).toLocaleString('es-CO')
 
 export default function MesasBillar() {
   const {
     mesas, partidasFinalizadas, totalBillarHoy,
-    crearMesa, actualizarMesa, eliminarMesa, iniciarPartida, finalizarPartida, trasladarPartida
+    crearMesa, actualizarMesa, eliminarMesa, iniciarPartida, finalizarPartida, trasladarPartida,
+    editarPartida, eliminarPartida
   } = useBillar()
 
   const { resumen, historial, cerrarJornada: cerrarJornadaHook, loading: cerrandoJornadaHook } = useJornadaDiaria()
@@ -35,6 +36,11 @@ export default function MesasBillar() {
   const [jornadaCerradaResult, setJornadaCerradaResult] = useState<any>(null)
   const [showJornadaHistory, setShowJornadaHistory] = useState(false)
   const [showMesasActivasWarning, setShowMesasActivasWarning] = useState(false)
+  const [editPartida, setEditPartida] = useState<PartidaBillar | null>(null)
+  const [editPartidaCliente, setEditPartidaCliente] = useState('')
+  const [editPartidaMinutos, setEditPartidaMinutos] = useState('')
+  const [editPartidaTotal, setEditPartidaTotal] = useState('')
+  const [confirmDeletePartida, setConfirmDeletePartida] = useState<string | null>(null)
 
   const mesasActivas = useMemo(() => mesas.filter(m => m.estado === 'EN_JUEGO'), [mesas])
 
@@ -279,9 +285,19 @@ export default function MesasBillar() {
                       <p className="text-[11px] text-white/30">{p.nombreCliente !== 'Cliente' ? p.nombreCliente + ' - ' : ''}{p.horasCobradas} min x {fmtCOP(Math.round(p.precioPorHora / 60))}/min</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-[#FFE66D]">{fmtCOP(p.total || 0)}</p>
-                    <p className="text-[10px] text-white/20">{new Date(parseUTC(p.horaInicio)).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} - {p.horaFin ? new Date(parseUTC(p.horaFin)).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right mr-1">
+                      <p className="text-sm font-bold text-[#FFE66D]">{fmtCOP(p.total || 0)}</p>
+                      <p className="text-[10px] text-white/20">{new Date(parseUTC(p.horaInicio)).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} - {p.horaFin ? new Date(parseUTC(p.horaFin)).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                    </div>
+                    <button onClick={() => { setEditPartida(p); setEditPartidaCliente(p.nombreCliente); setEditPartidaMinutos(String(p.horasCobradas || '')); setEditPartidaTotal(String(p.total || '')) }}
+                      className="p-1.5 rounded-lg hover:bg-white/10 text-white/30 hover:text-white/60 transition-all" title="Editar">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button onClick={() => setConfirmDeletePartida(p.id)}
+                      className="p-1.5 rounded-lg hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-all" title="Eliminar">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
                   </div>
                 </Card>
               ))}
@@ -583,6 +599,72 @@ export default function MesasBillar() {
             </div>
             <button onClick={() => setJornadaCerradaResult(null)}
               className="w-full px-4 py-2.5 rounded-xl bg-white/10 text-sm text-white/70 hover:bg-white/15 transition-all">Cerrar</button>
+          </div>
+        </Modal>
+      )}
+
+      {editPartida && (
+        <Modal onClose={() => setEditPartida(null)}>
+          <h3 className="text-lg font-bold mb-1">Editar Partida</h3>
+          <p className="text-sm text-white/30 mb-4">{editPartida.mesaBillarNombre}</p>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-white/40 block mb-1">Cliente</label>
+              <input value={editPartidaCliente} onChange={e => setEditPartidaCliente(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#4ECDC4]/50" />
+            </div>
+            <div>
+              <label className="text-xs text-white/40 block mb-1">Minutos cobrados</label>
+              <input type="number" value={editPartidaMinutos} onChange={e => setEditPartidaMinutos(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#4ECDC4]/50" />
+            </div>
+            <div>
+              <label className="text-xs text-white/40 block mb-1">Total (COP)</label>
+              <input type="number" value={editPartidaTotal} onChange={e => setEditPartidaTotal(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#4ECDC4]/50" />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-5">
+            <button onClick={() => setEditPartida(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm text-white/60 hover:bg-white/5 transition-all">Cancelar</button>
+            <button disabled={loading} onClick={async () => {
+              setLoading(true)
+              try {
+                await editarPartida(editPartida.id, {
+                  nombreCliente: editPartidaCliente || undefined,
+                  horasCobradas: editPartidaMinutos ? Number(editPartidaMinutos) : undefined,
+                  total: editPartidaTotal ? Number(editPartidaTotal) : undefined,
+                })
+                setEditPartida(null)
+              } catch (e: any) { alert(e.message) }
+              setLoading(false)
+            }} className="flex-1 px-4 py-2.5 rounded-xl bg-[#4ECDC4] text-black text-sm font-semibold hover:bg-[#4ECDC4]/80 transition-all disabled:opacity-40">
+              {loading ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {confirmDeletePartida && (
+        <Modal onClose={() => setConfirmDeletePartida(null)}>
+          <div className="text-center">
+            <div className="w-14 h-14 rounded-full bg-[#FF5050]/10 flex items-center justify-center mx-auto mb-3">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF5050" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </div>
+            <h3 className="text-lg font-bold mb-2">Eliminar Partida</h3>
+            <p className="text-sm text-white/40 mb-4">Esta accion no se puede deshacer. Se eliminara la partida y su recaudo del total del dia.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDeletePartida(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm text-white/60 hover:bg-white/5 transition-all">Cancelar</button>
+              <button disabled={loading} onClick={async () => {
+                setLoading(true)
+                try {
+                  await eliminarPartida(confirmDeletePartida)
+                  setConfirmDeletePartida(null)
+                } catch (e: any) { alert(e.message) }
+                setLoading(false)
+              }} className="flex-1 px-4 py-2.5 rounded-xl bg-[#FF5050] text-white text-sm font-semibold hover:bg-[#FF5050]/80 transition-all disabled:opacity-40">
+                {loading ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}
