@@ -1,61 +1,38 @@
 import { useEffect, useState, useCallback } from 'react'
-import { db, hashPassword } from '../lib/db'
+import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Trabajador } from '../types'
 
 export function useTrabajadores() {
   const [trabajadores, setTrabajadores] = useState<Trabajador[]>([])
 
   const fetchAll = useCallback(async () => {
-    const data = await db.trabajadores.toArray()
-    setTrabajadores(data.map((m: any) => ({ ...m, id: String(m.id) })))
+    try {
+      const res = await apiFetch(`${API_MANAGEMENT}/meseros`)
+      if (!res.ok) return
+      const data = await res.json()
+      setTrabajadores(data.map((m: any) => ({
+        id: String(m.id), nombre: m.nombre, color: m.color,
+        avatar: m.avatar, activo: m.activo, username: m.username || undefined,
+      })))
+    } catch { /* offline */ }
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
   const agregar = async (t: Omit<Trabajador, 'id'> & { username?: string; password?: string }) => {
-    const { username, password, ...trabajadorData } = t
-
-    // Si tiene username/password, crear también un user para login
-    if (username && password) {
-      const existingUser = await db.users.where('username').equals(username).first()
-      if (existingUser) throw new Error('El usuario ya existe')
-
-      const id = await db.trabajadores.add({ ...trabajadorData, username })
-      const pwHash = await hashPassword(password)
-      await db.users.add({
-        username,
-        passwordHash: pwHash,
-        nombre: trabajadorData.nombre,
-        role: 'MESERO',
-        meseroId: id as number,
-        isActive: true,
-      })
-    } else {
-      await db.trabajadores.add(trabajadorData)
-    }
+    await apiFetch(`${API_MANAGEMENT}/meseros`, {
+      method: 'POST',
+      body: JSON.stringify({ nombre: t.nombre, color: t.color, avatar: t.avatar, activo: t.activo, username: t.username, password: t.password }),
+    })
     await fetchAll()
   }
 
   const actualizar = async (id: string, data: Partial<Trabajador>) => {
-    await db.trabajadores.update(Number(id), data)
-    // Actualizar nombre en users si corresponde
-    if (data.nombre) {
-      const trab = await db.trabajadores.get(Number(id))
-      if (trab?.username) {
-        const user = await db.users.where('username').equals(trab.username).first()
-        if (user?.id) await db.users.update(user.id, { nombre: data.nombre })
-      }
-    }
-    await fetchAll()
+    setTrabajadores(prev => prev.map(t => t.id === id ? { ...t, ...data } : t))
   }
 
   const eliminar = async (id: string) => {
-    const trab = await db.trabajadores.get(Number(id))
-    if (trab?.username) {
-      const user = await db.users.where('username').equals(trab.username).first()
-      if (user?.id) await db.users.delete(user.id)
-    }
-    await db.trabajadores.delete(Number(id))
+    await apiFetch(`${API_MANAGEMENT}/meseros/${id}`, { method: 'DELETE' })
     await fetchAll()
   }
 

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { db, hashPassword } from '../lib/db'
+import { API_AUTH } from '../lib/config'
 import type { DiscoRol } from '../types'
 import TerminosCondiciones from './TerminosCondiciones'
 import PoliticaPrivacidad from './PoliticaPrivacidad'
@@ -28,27 +28,21 @@ export default function Login({ onLogin }: LoginProps) {
 
     setLoading(true)
     try {
-      const pwHash = await hashPassword(password)
-      const user = await db.users.where('username').equals(username.trim().toLowerCase()).first()
-
-      if (!user || user.passwordHash !== pwHash) {
-        setError('Credenciales inválidas')
+      const res = await fetch(`${API_AUTH}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: username.trim().toLowerCase(), password, rol: 'ADMINISTRADOR' }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setError(data?.message || 'Credenciales inválidas')
         return
       }
-
-      if (!user.isActive) {
-        setError('Usuario desactivado')
-        return
-      }
-
-      // Generar token local (no se usa realmente, pero mantiene la interfaz)
-      const fakeToken = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`
-      const rol = user.role as DiscoRol
-      const meseroId = user.meseroId ? String(user.meseroId) : undefined
-
-      onLogin(fakeToken, fakeToken, rol, user.nombre, meseroId)
+      const data = await res.json()
+      onLogin(data.accessToken || '', data.refreshToken || '', data.rol as DiscoRol, data.nombre, data.meseroId || undefined)
     } catch {
-      setError('Error al iniciar sesión')
+      setError('Error de conexión con el servidor')
     } finally {
       setLoading(false)
     }

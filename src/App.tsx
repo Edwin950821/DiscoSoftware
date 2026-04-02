@@ -73,12 +73,12 @@ export default function App() {
 
   const { productos, agregar: agregarProd, actualizar: actualizarProd, eliminar: eliminarProd } = useProductos()
   const { trabajadores, agregar: agregarTrabajador, actualizar: actualizarTrabajador, eliminar: eliminarTrabajador } = useTrabajadores()
-  const { jornadas, guardar: guardarJornada, eliminar: eliminarJornada } = useJornadas()
-  const { inventarios, guardar: guardarInventario, eliminar: eliminarInventario } = useInventarios()
+  const { jornadas, guardar: guardarJornada, actualizar: actualizarJornada, eliminar: eliminarJornada } = useJornadas()
+  const { inventarios, guardar: guardarInventario, actualizar: actualizarInventario, eliminar: eliminarInventario } = useInventarios()
   const { comparativos, guardar: guardarComparativo, eliminar: eliminarComparativo } = useComparativos()
 
-  // Seed database on first load
-  useEffect(() => { seedDatabase() }, [])
+  const [seeded, setSeeded] = useState(false)
+  useEffect(() => { seedDatabase().then(() => setSeeded(true)) }, [])
 
   useEffect(() => {
     const tick = () => setReloj(new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
@@ -97,12 +97,13 @@ export default function App() {
 
   const handleLogin = (at: string, _rt: string, r: DiscoRol, n: string, mId?: string) => {
     saveSession({ accessToken: at, refreshToken: at, rol: r, nombre: n, meseroId: mId })
-    setAccessToken(at); setRol(r); setNombre(n); setMeseroId(mId || '')
-    setView(r === 'MESERO' ? 'pedidos' : (loadPremium() ? 'dashboard' : 'liquidacion'))
+    // Recargar para que los hooks carguen datos con el token
+    window.location.reload()
   }
 
   const navigate = (v: View) => { setView(v); setMobileMenu(false) }
 
+  if (!seeded) return <div className="flex items-center justify-center h-screen bg-[#0A0A0A]"><p className="text-white/30 text-sm">Cargando...</p></div>
   if (view === 'login') return <Login onLogin={handleLogin} />
 
   const isAdmin = rol === 'ADMINISTRADOR'
@@ -322,8 +323,8 @@ export default function App() {
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
             agregarTrabajador={agregarTrabajador} eliminarTrabajador={eliminarTrabajador}
-            guardarJornada={guardarJornada} eliminarJornada={eliminarJornada}
-            guardarInventario={guardarInventario} eliminarInventario={eliminarInventario}
+            guardarJornada={guardarJornada} actualizarJornada={actualizarJornada} eliminarJornada={eliminarJornada}
+            guardarInventario={guardarInventario} actualizarInventario={actualizarInventario} eliminarInventario={eliminarInventario}
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}
           />
         )}
@@ -333,8 +334,8 @@ export default function App() {
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
             agregarTrabajador={agregarTrabajador} eliminarTrabajador={eliminarTrabajador}
-            guardarJornada={guardarJornada} eliminarJornada={eliminarJornada}
-            guardarInventario={guardarInventario} eliminarInventario={eliminarInventario}
+            guardarJornada={guardarJornada} actualizarJornada={actualizarJornada} eliminarJornada={eliminarJornada}
+            guardarInventario={guardarInventario} actualizarInventario={actualizarInventario} eliminarInventario={eliminarInventario}
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}
             initialTab="inventario"
           />
@@ -344,8 +345,8 @@ export default function App() {
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
             agregarTrabajador={agregarTrabajador} eliminarTrabajador={eliminarTrabajador}
-            guardarJornada={guardarJornada} eliminarJornada={eliminarJornada}
-            guardarInventario={guardarInventario} eliminarInventario={eliminarInventario}
+            guardarJornada={guardarJornada} actualizarJornada={actualizarJornada} eliminarJornada={eliminarJornada}
+            guardarInventario={guardarInventario} actualizarInventario={actualizarInventario} eliminarInventario={eliminarInventario}
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}
             initialTab="comparativo"
           />

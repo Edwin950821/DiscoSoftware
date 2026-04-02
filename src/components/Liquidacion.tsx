@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import type {
   Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago,
   Inventario as InventarioType, LineaInventario, InventarioInput,
@@ -13,6 +13,30 @@ import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/
 import { API_PEDIDOS, apiFetch } from '../lib/config'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
+
+/** Navegar entre filas con flechas ↑↓ como Excel (y evitar que cambien el número) */
+const handleTableArrowNav = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+  e.preventDefault()
+  e.stopPropagation()
+  const input = e.currentTarget
+  const td = input.closest('td')
+  if (!td) return
+  const tr = td.closest('tr')
+  if (!tr) return
+  const colIdx = Array.from(tr.children).indexOf(td)
+  const tbody = tr.closest('tbody')
+  if (!tbody) return
+  const rows = Array.from(tbody.rows)
+  const rowIdx = rows.indexOf(tr as HTMLTableRowElement)
+  const nextIdx = e.key === 'ArrowUp' ? rowIdx - 1 : rowIdx + 1
+  if (nextIdx < 0 || nextIdx >= rows.length) return
+  const targetInput = rows[nextIdx].children[colIdx]?.querySelector('input') as HTMLInputElement | null
+  if (targetInput) {
+    targetInput.focus()
+    targetInput.select()
+  }
+}
 const COLORES_PAGO: Record<string, string> = { Efectivo: '#CDA52F', Datafono: '#A8E6CF', QR: '#4ECDC4', Nequi: '#FFE66D', Vales: '#C3B1E1' }
 const COLORES_TRABAJADOR = ['#CDA52F', '#4ECDC4', '#FFE66D', '#A8E6CF', '#C3B1E1', '#FF8FA3', '#98D8C8', '#FFB347']
 
@@ -203,8 +227,10 @@ interface Props {
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
   eliminarTrabajador: (id: string) => Promise<void>
   guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
+  actualizarJornada: (id: string, input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
   eliminarJornada: (id: string) => Promise<void>
   guardarInventario: (inv: InventarioInput) => Promise<void>
+  actualizarInventario: (id: string, inv: InventarioInput) => Promise<void>
   eliminarInventario: (id: string) => Promise<void>
   guardarComparativo: (comp: ComparativoInput) => Promise<void>
   eliminarComparativo: (id: string) => Promise<void>
@@ -214,15 +240,16 @@ interface Props {
 export default function Liquidacion({
   jornadas, trabajadores, productos, inventarios, comparativos,
   agregarTrabajador, eliminarTrabajador,
-  guardarJornada, eliminarJornada,
-  guardarInventario, eliminarInventario,
+  guardarJornada, actualizarJornada, eliminarJornada,
+  guardarInventario, actualizarInventario, eliminarInventario,
   guardarComparativo, eliminarComparativo,
   initialTab,
 }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab || 'liquidacion')
 
 
-  const [modoLiq, setModoLiq] = useState<'lista' | 'nueva'>('lista')
+  const [modoLiq, setModoLiq] = useState<'lista' | 'nueva' | 'editar'>('lista')
+  const [editJornadaId, setEditJornadaId] = useState<string | null>(null)
   const nextSesion = () => {
     const nums = jornadas.map(j => { const m = j.sesion.match(/(\d+)/); return m ? Number(m[1]) : 0 })
     return `SI-${(nums.length > 0 ? Math.max(...nums) : 0) + 1}`
@@ -244,7 +271,8 @@ export default function Liquidacion({
   const [modalExito, setModalExito] = useState<string | null>(null)
 
 
-  const [modoInv, setModoInv] = useState<'lista' | 'nuevo'>('lista')
+  const [modoInv, setModoInv] = useState<'lista' | 'nuevo' | 'editar'>('lista')
+  const [editInvId, setEditInvId] = useState<string | null>(null)
   const [fechaInv, setFechaInv] = useState(new Date().toISOString().split('T')[0])
   const [lineasInv, _setLineasInv] = useState<LineaInventario[]>([])
   const [invHistory, setInvHistory] = useState<LineaInventario[][]>([])
@@ -290,16 +318,15 @@ export default function Liquidacion({
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'z') {
         e.preventDefault()
-        if (tab === 'liquidacion' && modoLiq === 'nueva') undoLiq()
-        else if (tab === 'inventario' && modoInv === 'nuevo') undoInv()
+        if (tab === 'liquidacion' && (modoLiq === 'nueva' || modoLiq === 'editar')) undoLiq()
+        else if (tab === 'inventario' && (modoInv === 'nuevo' || modoInv === 'editar')) undoInv()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [tab, modoLiq, modoInv, undoLiq, undoInv])
 
-  const fechasJornadas = new Set(jornadas.map(j => j.fecha))
-  const fechaLiqDuplicada = fechasJornadas.has(fechaLiq)
+  const fechaLiqDuplicada = jornadas.some(j => j.fecha === fechaLiq && j.id !== editJornadaId)
 
   const toggleTrabajador = (id: string) => {
     setLiquidaciones(prev => {
@@ -311,9 +338,12 @@ export default function Liquidacion({
       }
       const t = trabajadores.find(x => x.id === id)
       if (!t) return prev
-      const lineasIniciales = productos.filter(p => p.activo).map(p => ({
-        productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad: 0, total: 0,
-      }))
+      const ultimoInv = inventarios.length > 0 ? inventarios[0] : null
+      const lineasIniciales = productos.filter(p => p.activo).map(p => {
+        const invLinea = ultimoInv?.lineas.find(l => l.productoId === p.id)
+        const cantidad = invLinea?.saldo ?? 0
+        return { productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad, total: p.precio * cantidad }
+      })
       const newLiq: LiquidacionTrabajador = {
         trabajadorId: t.id, nombre: t.nombre, color: t.color, avatar: t.avatar,
         lineas: lineasIniciales, transacciones: [], vales: [], cortesias: [], gastos: [],
@@ -435,23 +465,38 @@ export default function Liquidacion({
   const algunoConVentas = liquidaciones.length > 0 && liquidaciones.some(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
   const formValidoLiq = sesion.trim() !== '' && algunoConVentas && !fechaLiqDuplicada
 
+  const editarJornada = (j: Jornada) => {
+    setSesion(j.sesion)
+    setFechaLiq(j.fecha)
+    const liqs = (j.liquidaciones || []).map(liq => ({ ...liq }))
+    _setLiquidaciones(liqs)
+    setActiveTrabajadorId(liqs.length > 0 ? liqs[0].trabajadorId : null)
+    setEditJornadaId(j.id)
+    setModoLiq('editar')
+  }
+
   const handleGuardarLiq = async () => {
     if (!formValidoLiq || guardandoLiq) return
     setGuardandoLiq(true)
     try {
-
       const liqsConVentas = liquidaciones.filter(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
       const liqsConEfectivo = liqsConVentas.map(liq => {
         const c = calcularLiquidacion(liq)
         return { ...liq, efectivoEntregado: liq.efectivoEntregado > 0 ? liq.efectivoEntregado : c.efectivo }
       })
-      await guardarJornada({ sesion, fecha: fechaLiq, liquidaciones: liqsConEfectivo })
+      const data = { sesion, fecha: fechaLiq, liquidaciones: liqsConEfectivo }
+      if (modoLiq === 'editar' && editJornadaId) {
+        await actualizarJornada(editJornadaId, data)
+        setModalExito('Liquidacion actualizada correctamente')
+      } else {
+        await guardarJornada(data)
+        setModalExito('Liquidacion guardada correctamente')
+      }
       setGuardandoLiq(false)
-      setModalExito('Liquidacion guardada correctamente')
       setTimeout(() => {
         setModalExito(null)
         setSesion(''); setFechaLiq(new Date().toISOString().split('T')[0])
-        setLiquidaciones([]); setActiveTrabajadorId(null); setModoLiq('lista')
+        _setLiquidaciones([]); setActiveTrabajadorId(null); setEditJornadaId(null); setModoLiq('lista')
       }, 2000)
     } catch {
       setGuardandoLiq(false)
@@ -470,8 +515,7 @@ export default function Liquidacion({
   }
 
 
-  const fechasInv = new Set(inventarios.map(i => i.fecha))
-  const fechaInvDuplicada = fechasInv.has(fechaInv)
+  const fechaInvDuplicada = inventarios.some(i => i.fecha === fechaInv && i.id !== editInvId)
 
   const generarLineasInv = () => {
     const activos = productos.filter(p => p.activo)
@@ -485,7 +529,14 @@ export default function Liquidacion({
     }).sort((a, b) => b.valorUnitario - a.valorUnitario)
   }
 
-  const crearNuevoInv = () => { setLineasInv(generarLineasInv()); setFechaInv(new Date().toISOString().split('T')[0]); setModoInv('nuevo') }
+  const crearNuevoInv = () => { setLineasInv(generarLineasInv()); setFechaInv(new Date().toISOString().split('T')[0]); setEditInvId(null); setModoInv('nuevo') }
+
+  const editarInv = (inv: InventarioType) => {
+    setFechaInv(inv.fecha)
+    setLineasInv(inv.lineas.map(l => ({ ...l })))
+    setEditInvId(inv.id)
+    setModoInv('editar')
+  }
 
   useEffect(() => {
     if (modoInv === 'nuevo' && lineasInv.length === 0 && productos.length > 0) setLineasInv(generarLineasInv())
@@ -517,10 +568,16 @@ export default function Liquidacion({
     if (fechaInvDuplicada || guardandoI) return
     setGuardandoI(true)
     try {
-      await guardarInventario({ fecha: fechaInv, lineas: lineasInv, totalGeneral: totalGeneralInv })
+      const data = { fecha: fechaInv, lineas: lineasInv, totalGeneral: totalGeneralInv }
+      if (modoInv === 'editar' && editInvId) {
+        await actualizarInventario(editInvId, data)
+        setModalExito('Inventario actualizado correctamente')
+      } else {
+        await guardarInventario(data)
+        setModalExito('Inventario guardado correctamente')
+      }
       setGuardandoI(false)
-      setModalExito('Inventario guardado correctamente')
-      setTimeout(() => { setModalExito(null); setModoInv('lista') }, 2000)
+      setTimeout(() => { setModalExito(null); setModoInv('lista'); setEditInvId(null) }, 2000)
     } catch { setGuardandoI(false); alert('Error al guardar inventario.') }
   }
 
@@ -587,7 +644,7 @@ export default function Liquidacion({
       </div>
 
       {tab === 'liquidacion' && (
-        modoLiq === 'nueva' ? (
+        modoLiq === 'nueva' || modoLiq === 'editar' ? (
           <LiquidacionNueva
             trabajadores={trabajadores}
             liquidaciones={liquidaciones} activeTrabajadorId={activeTrabajadorId}
@@ -609,26 +666,29 @@ export default function Liquidacion({
               setLiquidaciones(prev => prev.map(l => l.trabajadorId !== tid ? l : { ...l, ...data }))
             }}
             handleGuardar={handleGuardarLiq}
-            onBack={() => setModoLiq('lista')}
+            onBack={() => { setModoLiq('lista'); setEditJornadaId(null) }}
+            isEditing={modoLiq === 'editar'}
           />
         ) : (
           <LiquidacionLista jornadas={jornadas} confirmDelete={confirmDeleteJ}
             setConfirmDelete={setConfirmDeleteJ} handleEliminar={handleEliminarJ}
-            onNueva={() => { setSesion(nextSesion()); setModoLiq('nueva') }} />
+            onNueva={() => { setSesion(nextSesion()); setEditJornadaId(null); setModoLiq('nueva') }}
+            onEditar={editarJornada} />
         )
       )}
 
       {tab === 'semana' && <LiquidacionSemana jornadas={jornadas} inventarios={inventarios} />}
 
       {tab === 'inventario' && (
-        modoInv === 'nuevo' ? (
+        modoInv === 'nuevo' || modoInv === 'editar' ? (
           <InventarioNuevo fecha={fechaInv} setFecha={setFechaInv} lineas={lineasInv} totalGeneral={totalGeneralInv}
             actualizarLinea={actualizarLineaInv} reordenarLineas={reordenarLineasInv} guardando={guardandoI} fechaDuplicada={fechaInvDuplicada}
-            handleGuardar={handleGuardarInv} onBack={() => setModoInv('lista')} />
+            handleGuardar={handleGuardarInv} onBack={() => { setModoInv('lista'); setEditInvId(null) }}
+            isEditing={modoInv === 'editar'} />
         ) : (
           <InventarioLista inventarios={inventarios} expandedId={expandedInv} setExpandedId={setExpandedInv}
             confirmDelete={confirmDeleteI} setConfirmDelete={setConfirmDeleteI}
-            handleEliminar={handleEliminarI} onNuevo={crearNuevoInv} productosLoaded={productos.length > 0} />
+            handleEliminar={handleEliminarI} onNuevo={crearNuevoInv} onEditar={editarInv} productosLoaded={productos.length > 0} />
         )
       )}
 
@@ -665,9 +725,9 @@ export default function Liquidacion({
 
 
 
-function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva }: {
+function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva, onEditar }: {
   jornadas: Jornada[]; confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
-  handleEliminar: (id: string) => void; onNueva: () => void
+  handleEliminar: (id: string) => void; onNueva: () => void; onEditar: (j: Jornada) => void
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [desde, setDesde] = useState('')
@@ -736,6 +796,37 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                               {c.totalCortesias > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Cort: {fmtFull(c.totalCortesias)}</span>}
                               {c.totalGastos > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Gast: {fmtFull(c.totalGastos)}</span>}
                             </div>
+
+                            {/* Detalle items: Transacciones, Vales, Cortesias, Gastos */}
+                            {((liq.transacciones?.length > 0) || (liq.vales?.length > 0) || (liq.cortesias?.length > 0) || (liq.gastos?.length > 0)) && (
+                              <div className="ml-9 mt-2 space-y-1.5">
+                                {liq.transacciones?.filter(t => t.monto > 0).map((t, ti) => (
+                                  <div key={`tr-${ti}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
+                                    <span className="text-white/35">{t.tipo}{t.concepto ? ` — ${t.concepto}` : ''}</span>
+                                    <span style={{ color: COLORES_PAGO[t.tipo] || '#A8E6CF' }} className="font-medium">{fmtFull(t.monto)}</span>
+                                  </div>
+                                ))}
+                                {liq.vales?.filter(v => v.monto > 0).map((v, vi) => (
+                                  <div key={`va-${vi}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
+                                    <span className="text-white/35">Vale{v.tercero ? ` — ${v.tercero}` : ''}</span>
+                                    <span className="font-medium" style={{ color: '#C3B1E1' }}>{fmtFull(v.monto)}</span>
+                                  </div>
+                                ))}
+                                {liq.cortesias?.filter(ct => ct.monto > 0).map((ct, ci) => (
+                                  <div key={`co-${ci}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
+                                    <span className="text-white/35">Cortesia{ct.concepto ? ` — ${ct.concepto}` : ''}</span>
+                                    <span className="font-medium text-white/50">{fmtFull(ct.monto)}</span>
+                                  </div>
+                                ))}
+                                {liq.gastos?.filter(g => g.monto > 0).map((g, gi) => (
+                                  <div key={`ga-${gi}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
+                                    <span className="text-white/35">Gasto{g.concepto ? ` — ${g.concepto}` : ''}</span>
+                                    <span className="font-medium text-white/50">{fmtFull(g.monto)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
                             <div className="ml-9 mt-1.5 flex justify-between text-xs">
                               <span className="text-white/30 font-medium">Saldo: <span className={`font-bold ${c.saldo === 0 ? 'text-[#60A5FA]' : c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(c.saldo)}</span></span>
                             </div>
@@ -754,6 +845,9 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                     </div>
 
                     <div className="flex justify-end gap-2 mt-3">
+                      <Btn size="sm" variant="ghost" onClick={() => onEditar(j)} className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
+                      </Btn>
                       <Btn size="sm" variant="ghost" onClick={() => printJornada(j)} className="flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Imprimir
                       </Btn>
@@ -792,7 +886,7 @@ function LiquidacionNueva({
   updateCortesia, addCortesia, removeCortesia,
   updateGasto, addGasto, removeGasto,
   updateLiqDirect,
-  handleGuardar, onBack,
+  handleGuardar, onBack, isEditing = false,
 }: {
   trabajadores: Trabajador[]
   liquidaciones: LiquidacionTrabajador[]; activeTrabajadorId: string | null
@@ -818,7 +912,7 @@ function LiquidacionNueva({
   addGasto: (tid: string) => void
   removeGasto: (tid: string, idx: number) => void
   updateLiqDirect: (tid: string, data: Partial<LiquidacionTrabajador>) => void
-  handleGuardar: () => void; onBack: () => void
+  handleGuardar: () => void; onBack: () => void; isEditing?: boolean
 }) {
   const activeLiq = liquidaciones.find(l => l.trabajadorId === activeTrabajadorId)
 
@@ -868,7 +962,7 @@ function LiquidacionNueva({
 
   return (
     <div>
-      <BackButton onClick={onBack} title="Nueva Liquidacion" />
+      <BackButton onClick={onBack} title={isEditing ? "Editar Liquidacion" : "Nueva Liquidacion"} />
 
       <div className="flex gap-2 sm:gap-3 items-end mb-2">
         <Input label="Sesion" value={sesion} onChange={e => setSesion(e.target.value)} placeholder="SI-7" className="w-24 sm:w-32" />
@@ -1131,6 +1225,7 @@ function LiquidacionNueva({
                               className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">-</button>
                             <input type="number" min={0} value={l.cantidad || ''}
                               onChange={e => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, Number(e.target.value) || 0)}
+                              onKeyDown={handleTableArrowNav}
                               className="bg-white/5 border border-white/10 rounded px-1 py-1 text-xs text-white w-12 text-center focus:outline-none focus:border-[#CDA52F]/50" />
                             <button onClick={() => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, l.cantidad + 1)}
                               className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">+</button>
@@ -1328,7 +1423,7 @@ function LiquidacionNueva({
             </p>
           )}
           <div className="flex justify-end">
-            <Btn onClick={handleGuardar} disabled={!formValido || guardando}>{guardando ? 'Guardando...' : 'Guardar Liquidacion'}</Btn>
+            <Btn onClick={handleGuardar} disabled={!formValido || guardando}>{guardando ? 'Guardando...' : isEditing ? 'Actualizar Liquidacion' : 'Guardar Liquidacion'}</Btn>
           </div>
         </div>
       )}
@@ -1338,11 +1433,12 @@ function LiquidacionNueva({
 
 
 
-function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLinea, reordenarLineas, guardando, fechaDuplicada, handleGuardar, onBack }: {
+function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLinea, reordenarLineas, guardando, fechaDuplicada, handleGuardar, onBack, isEditing = false }: {
   fecha: string; setFecha: (v: string) => void; lineas: LineaInventario[]; totalGeneral: number
   actualizarLinea: (idx: number, campo: 'salidas' | 'invInicial' | 'entradas' | 'invFisico', valor: string) => void
   reordenarLineas: (campo: string, dir: 'asc' | 'desc') => void
   guardando: boolean; fechaDuplicada: boolean; handleGuardar: () => void; onBack: () => void
+  isEditing?: boolean
 }) {
   const [sortCol, setSortCol] = useState<string>('nombre')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -1363,7 +1459,7 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
 
   return (
     <div>
-      <BackButton onClick={onBack} title="Nuevo Inventario" />
+      <BackButton onClick={onBack} title={isEditing ? "Editar Inventario" : "Nuevo Inventario"} />
       <div className="flex gap-3 items-end mb-2">
         <Input label="Fecha" type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="w-44" />
         <div className="text-sm text-white/45 pb-2">Total: <span className="text-[#FFE66D] font-bold">{fmtFull(totalGeneral)}</span></div>
@@ -1389,18 +1485,22 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
                 <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.salidas || ''} onChange={e => actualizarLinea(idx, 'salidas', e.target.value)}
+                    onKeyDown={handleTableArrowNav}
                     className="bg-white/5 border border-[#FF5050]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#FF5050]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.invInicial || ''} onChange={e => actualizarLinea(idx, 'invInicial', e.target.value)}
+                    onKeyDown={handleTableArrowNav}
                     className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#CDA52F]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.entradas || ''} onChange={e => actualizarLinea(idx, 'entradas', e.target.value)}
+                    onKeyDown={handleTableArrowNav}
                     className="bg-white/5 border border-[#4ECDC4]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#4ECDC4]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.invFisico || ''} onChange={e => actualizarLinea(idx, 'invFisico', e.target.value)}
+                    onKeyDown={handleTableArrowNav}
                     className="bg-white/5 border border-[#CDA52F]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#CDA52F]/50" />
                 </td>
                 <td className={`py-2 px-1 text-center text-xs font-bold ${l.saldo >= 0 ? 'text-[#FFE66D]' : 'text-[#FF5050]'}`}>{l.saldo}</td>
@@ -1418,16 +1518,16 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
         </table>
       </div>
       <div className="flex justify-end mt-4">
-        <Btn onClick={handleGuardar} disabled={guardando || fechaDuplicada}>{guardando ? 'Guardando...' : 'Guardar Inventario'}</Btn>
+        <Btn onClick={handleGuardar} disabled={guardando || fechaDuplicada}>{guardando ? 'Guardando...' : isEditing ? 'Actualizar Inventario' : 'Guardar Inventario'}</Btn>
       </div>
     </div>
   )
 }
 
-function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, productosLoaded }: {
+function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, onEditar, productosLoaded }: {
   inventarios: InventarioType[]; expandedId: string | null; setExpandedId: (id: string | null) => void
   confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
-  handleEliminar: (id: string) => void; onNuevo: () => void; productosLoaded: boolean
+  handleEliminar: (id: string) => void; onNuevo: () => void; onEditar: (inv: InventarioType) => void; productosLoaded: boolean
 }) {
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
@@ -1496,7 +1596,10 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
                         </tfoot>
                       </table>
                     </div>
-                    <div className="flex justify-end mt-3">
+                    <div className="flex justify-end gap-2 mt-3">
+                      <Btn size="sm" variant="ghost" onClick={() => onEditar(inv)} className="flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
+                      </Btn>
                       {confirmDelete === inv.id ? (
                         <div className="flex gap-2 items-center">
                           <span className="text-xs text-[#FF5050]">Eliminar?</span>
@@ -1550,10 +1653,12 @@ function ComparativoNuevo({ fecha, setFecha, lineas, totalConteo, totalTiquets, 
                 <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.conteo || ''} onChange={e => actualizarLinea(idx, 'conteo', e.target.value)}
+                    onKeyDown={handleTableArrowNav}
                     className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#CDA52F]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.tiquets || ''} onChange={e => actualizarLinea(idx, 'tiquets', e.target.value)}
+                    onKeyDown={handleTableArrowNav}
                     className="bg-white/5 border border-[#4ECDC4]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#4ECDC4]/50" />
                 </td>
                 <td className="py-2 px-1 text-center">

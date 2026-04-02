@@ -1,11 +1,27 @@
-// Config stub — API calls replaced by Dexie.js local DB
-// These exports are kept so any remaining imports don't break at compile time
+// API Backend en Render
+export const API_BASE = 'https://monastery-backend-dmby.onrender.com'
+export const API_DISCO = `${API_BASE}/api/disco`
+export const API_MANAGEMENT = `${API_DISCO}/management`
+export const API_PEDIDOS = `${API_DISCO}/pedidos`
+export const API_AUTH = `${API_DISCO}/auth`
 
-export const API_URL = ''
-export const API_MANAGEMENT = ''
-export const API_PEDIDOS = ''
+function getToken(): string | null {
+  try {
+    const raw = sessionStorage.getItem('monastery_session') || localStorage.getItem('monastery_session')
+    if (!raw) return null
+    return JSON.parse(raw).accessToken || null
+  } catch { return null }
+}
 
-export function apiFetch(_url: string, _options: RequestInit = {}): Promise<Response> {
-  // Should never be called — all data goes through Dexie hooks now
-  return Promise.resolve(new Response(JSON.stringify({ error: 'Local mode — use Dexie' }), { status: 501 }))
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = getToken()
+  if (!token) {
+    return new Response(JSON.stringify([]), { status: 401, headers: { 'Content-Type': 'application/json' } })
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  }
+  headers['Authorization'] = `Bearer ${token}`
+  return fetch(path, { ...options, headers, credentials: 'include' })
 }
