@@ -80,6 +80,16 @@ export default function App() {
   const [seeded, setSeeded] = useState(false)
   useEffect(() => { seedDatabase().then(() => setSeeded(true)) }, [])
 
+  // Quitar splash de carga cuando la app está lista
+  useEffect(() => {
+    if (!seeded) return
+    const splash = document.getElementById('splash')
+    if (splash) {
+      splash.classList.add('fade-out')
+      setTimeout(() => splash.remove(), 500)
+    }
+  }, [seeded])
+
   useEffect(() => {
     const tick = () => setReloj(new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
     tick()
