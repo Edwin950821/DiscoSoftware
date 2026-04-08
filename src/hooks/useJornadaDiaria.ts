@@ -80,5 +80,12 @@ export function useJornadaDiaria() {
     fetchHistorial()
   }, [fetchResumen, fetchHistorial])
 
-  return { resumen, historial, cerrarJornada, loading, refetch: fetchResumen }
+  return {
+    resumen,
+    historial,
+    cerrarJornada,
+    loading,
+    refetch: fetchResumen,
+    refetchHistorial: fetchHistorial,
+  }
 }

@@ -11,10 +11,15 @@ export default function MesasBillar() {
   const {
     mesas, partidasFinalizadas, totalBillarHoy,
     crearMesa, actualizarMesa, eliminarMesa, iniciarPartida, finalizarPartida, trasladarPartida,
-    editarPartida, eliminarPartida
+    editarPartida, eliminarPartida, fetchPartidasPorFecha
   } = useBillar()
 
-  const { resumen, historial, cerrarJornada: cerrarJornadaHook, loading: cerrandoJornadaHook } = useJornadaDiaria()
+  const {
+    resumen, historial,
+    cerrarJornada: cerrarJornadaHook,
+    refetchHistorial,
+    loading: cerrandoJornadaHook
+  } = useJornadaDiaria()
   const jornadaActiva = resumen === null ? null : !resumen.jornadaCerrada
 
   const [showAddForm, setShowAddForm] = useState(false)
@@ -41,6 +46,32 @@ export default function MesasBillar() {
   const [editPartidaMinutos, setEditPartidaMinutos] = useState('')
   const [editPartidaTotal, setEditPartidaTotal] = useState('')
   const [confirmDeletePartida, setConfirmDeletePartida] = useState<string | null>(null)
+
+  // Historial de jornadas pasadas
+  const [expandedJornadaId, setExpandedJornadaId] = useState<string | null>(null)
+  const [partidasPorJornada, setPartidasPorJornada] = useState<Record<string, PartidaBillar[]>>({})
+  const [loadingJornadaPartidas, setLoadingJornadaPartidas] = useState<string | null>(null)
+
+  const cargarPartidasJornada = useCallback(async (fecha: string) => {
+    setLoadingJornadaPartidas(fecha)
+    try {
+      const partidas = await fetchPartidasPorFecha(fecha)
+      setPartidasPorJornada(prev => ({ ...prev, [fecha]: partidas.filter(p => p.estado === 'FINALIZADA') }))
+    } catch (e: any) {
+      alert(e.message || 'Error al cargar partidas')
+    } finally {
+      setLoadingJornadaPartidas(null)
+    }
+  }, [fetchPartidasPorFecha])
+
+  const toggleExpandirJornada = useCallback((j: { id: string; fecha: string }) => {
+    if (expandedJornadaId === j.id) {
+      setExpandedJornadaId(null)
+      return
+    }
+    setExpandedJornadaId(j.id)
+    if (!partidasPorJornada[j.fecha]) cargarPartidasJornada(j.fecha)
+  }, [expandedJornadaId, partidasPorJornada, cargarPartidasJornada])
 
   const mesasActivas = useMemo(() => mesas.filter(m => m.estado === 'EN_JUEGO'), [mesas])
 
@@ -220,10 +251,10 @@ export default function MesasBillar() {
         <KpiCard label="En Juego" value={String(mesasActivas.length)} color="#FF6B35" icon={
           <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
         } />
-        <KpiCard label="Partidas Hoy" value={String(jornadaActiva !== false ? partidasFinalizadas.length : 0)} color="#D4AF37" icon={
+        <KpiCard label="Partidas Hoy" value={String(partidasFinalizadas.length)} color="#D4AF37" icon={
           <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
         } />
-        <KpiCard label="Total Billar" value={fmtCOP(jornadaActiva !== false ? totalBillarHoy : 0)} color="#FFE66D" icon={
+        <KpiCard label="Total Billar" value={fmtCOP(totalBillarHoy)} color="#FFE66D" icon={
           <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.94s4.18 1.36 4.18 3.85c0 1.89-1.44 2.98-3.12 3.19z"/></svg>
         } />
       </div>
@@ -263,7 +294,19 @@ export default function MesasBillar() {
         </div>
       )}
 
-      {jornadaActiva !== false && partidasFinalizadas.length > 0 && (
+      {jornadaActiva === false && (
+        <Card className="mt-6 mb-2 flex items-center gap-3 py-3 px-4">
+          <div className="w-9 h-9 rounded-full bg-[#4ECDC4]/10 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#4ECDC4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+          </div>
+          <div>
+            <p className="text-sm text-white/80 font-medium">Jornada cerrada</p>
+            <p className="text-[11px] text-white/40">Puedes seguir consultando, editando o eliminando partidas del día</p>
+          </div>
+        </Card>
+      )}
+
+      {partidasFinalizadas.length > 0 && (
         <div className="mt-6">
           <button onClick={() => setShowHistory(!showHistory)}
             className="flex items-center gap-2 text-xs text-white/30 uppercase tracking-wider mb-3 hover:text-white/50 transition-colors">
@@ -306,17 +349,7 @@ export default function MesasBillar() {
         </div>
       )}
 
-      {jornadaActiva !== false && partidasFinalizadas.length > 0 && <BillarCharts partidas={partidasFinalizadas} total={totalBillarHoy} />}
-
-      {jornadaActiva === false && (
-        <Card className="text-center py-8 mb-6">
-          <div className="w-14 h-14 rounded-full bg-[#4ECDC4]/10 flex items-center justify-center mx-auto mb-3">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="#4ECDC4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-          </div>
-          <p className="text-white/60 font-medium">Jornada cerrada</p>
-          <p className="text-white/30 text-sm mt-1">Las partidas fueron contabilizadas en el historial</p>
-        </Card>
-      )}
+      {partidasFinalizadas.length > 0 && <BillarCharts partidas={partidasFinalizadas} total={totalBillarHoy} />}
 
       {historial.length > 0 && (
         <div className="mt-4">
@@ -329,18 +362,64 @@ export default function MesasBillar() {
           </button>
           {showJornadaHistory && (
             <div className="space-y-2">
-              {historial.map(j => (
-                <Card key={j.id} className="flex items-center justify-between py-3">
-                  <div>
-                    <p className="text-sm text-white/80 font-medium">{new Date(j.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
-                    <p className="text-[11px] text-white/30">{j.partidasBillar} partida{j.partidasBillar !== 1 ? 's' : ''} de billar</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-[#FFE66D]">{fmtCOP(j.totalBillar)}</p>
-                    <p className="text-[10px] text-white/20">Total: {fmtCOP(j.totalGeneral)}</p>
-                  </div>
-                </Card>
-              ))}
+              {historial.map(j => {
+                const expanded = expandedJornadaId === j.id
+                const partidasJornada = partidasPorJornada[j.fecha] || []
+                const cargando = loadingJornadaPartidas === j.fecha
+                return (
+                  <Card key={j.id} className="py-0 px-0 overflow-hidden">
+                    <div className="flex items-center justify-between py-3 px-4 hover:bg-white/[0.02] cursor-pointer" onClick={() => toggleExpandirJornada(j)}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                          className="text-white/40 flex-shrink-0"
+                          style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                          <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                        <div className="min-w-0">
+                          <p className="text-sm text-white/80 font-medium capitalize truncate">{new Date(j.fecha + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                          <p className="text-[11px] text-white/30">{j.partidasBillar} partida{j.partidasBillar !== 1 ? 's' : ''} de billar</p>
+                        </div>
+                      </div>
+                      <div className="text-right ml-2 flex-shrink-0">
+                        <p className="text-sm font-bold text-[#FFE66D]">{fmtCOP(j.totalBillar)}</p>
+                        <p className="text-[10px] text-white/20">Total: {fmtCOP(j.totalGeneral)}</p>
+                      </div>
+                    </div>
+                    {expanded && (
+                      <div className="border-t border-white/[0.05] bg-black/20 p-3 space-y-3">
+                        {/* Listado de partidas */}
+                        {cargando ? (
+                          <p className="text-xs text-white/40 text-center py-3">Cargando partidas...</p>
+                        ) : partidasJornada.length === 0 ? (
+                          <p className="text-xs text-white/40 text-center py-3">Sin partidas finalizadas en esta jornada</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {partidasJornada.map(p => (
+                              <div key={p.id} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-2">
+                                <div className="min-w-0">
+                                  <p className="text-xs text-white/80 font-medium truncate">{p.mesaBillarNombre}</p>
+                                  <p className="text-[10px] text-white/30">{p.nombreCliente !== 'Cliente' ? p.nombreCliente + ' - ' : ''}{p.horasCobradas ?? 0} min</p>
+                                </div>
+                                <div className="flex items-center gap-1.5 ml-2">
+                                  <p className="text-xs font-bold text-[#FFE66D] mr-1">{fmtCOP(p.total || 0)}</p>
+                                  <button onClick={() => { setEditPartida(p); setEditPartidaCliente(p.nombreCliente); setEditPartidaMinutos(String(p.horasCobradas || '')); setEditPartidaTotal(String(p.total || '')) }}
+                                    className="p-1 rounded hover:bg-white/10 text-white/30 hover:text-white/60 transition-all" title="Editar">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                  </button>
+                                  <button onClick={() => setConfirmDeletePartida(p.id)}
+                                    className="p-1 rounded hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-all" title="Eliminar">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                )
+              })}
             </div>
           )}
         </div>
@@ -629,11 +708,16 @@ export default function MesasBillar() {
             <button disabled={loading} onClick={async () => {
               setLoading(true)
               try {
+                const fechaEditada = editPartida.jornadaFecha
                 await editarPartida(editPartida.id, {
-                  nombreCliente: editPartidaCliente || undefined,
-                  horasCobradas: editPartidaMinutos ? Number(editPartidaMinutos) : undefined,
-                  total: editPartidaTotal ? Number(editPartidaTotal) : undefined,
+                  nombreCliente: editPartidaCliente.trim() !== '' ? editPartidaCliente.trim() : undefined,
+                  horasCobradas: editPartidaMinutos !== '' ? Number(editPartidaMinutos) : undefined,
+                  total: editPartidaTotal !== '' ? Number(editPartidaTotal) : undefined,
                 })
+                if (fechaEditada && partidasPorJornada[fechaEditada]) {
+                  await cargarPartidasJornada(fechaEditada)
+                }
+                await refetchHistorial()
                 setEditPartida(null)
               } catch (e: any) { alert(e.message) }
               setLoading(false)
@@ -651,13 +735,21 @@ export default function MesasBillar() {
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF5050" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </div>
             <h3 className="text-lg font-bold mb-2">Eliminar Partida</h3>
-            <p className="text-sm text-white/40 mb-4">Esta accion no se puede deshacer. Se eliminara la partida y su recaudo del total del dia.</p>
+            <p className="text-sm text-white/40 mb-4">Esta accion no se puede deshacer. Se eliminara la partida y el total de su jornada se recalculara automaticamente.</p>
             <div className="flex gap-2">
               <button onClick={() => setConfirmDeletePartida(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-sm text-white/60 hover:bg-white/5 transition-all">Cancelar</button>
               <button disabled={loading} onClick={async () => {
                 setLoading(true)
                 try {
+                  // Buscar de qué fecha era la partida (puede estar en partidasFinalizadas o en alguna jornada expandida)
+                  const fechaPartida =
+                    partidasFinalizadas.find(p => p.id === confirmDeletePartida)?.jornadaFecha ||
+                    Object.values(partidasPorJornada).flat().find(p => p.id === confirmDeletePartida)?.jornadaFecha
                   await eliminarPartida(confirmDeletePartida)
+                  if (fechaPartida && partidasPorJornada[fechaPartida]) {
+                    await cargarPartidasJornada(fechaPartida)
+                  }
+                  await refetchHistorial()
                   setConfirmDeletePartida(null)
                 } catch (e: any) { alert(e.message) }
                 setLoading(false)
@@ -692,6 +784,7 @@ export default function MesasBillar() {
           </div>
         </Modal>
       )}
+
     </div>
   )
 }
@@ -889,10 +982,10 @@ function BillarCharts({ partidas, total }: { partidas: import('../types').Partid
         </div>
       </Card>
 
-      {pieData.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card>
-            <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2">Distribucion por Mesa</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2">Distribucion por Mesa</p>
+          {pieData.length > 0 ? (
             <div className="flex items-center gap-4">
               <div className="w-[120px] h-[120px] shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
@@ -918,10 +1011,14 @@ function BillarCharts({ partidas, total }: { partidas: import('../types').Partid
                 ))}
               </div>
             </div>
-          </Card>
+          ) : (
+            <p className="text-xs text-white/30 text-center py-8">No hay ventas registradas</p>
+          )}
+        </Card>
 
-          <Card>
-            <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2">Venta por Mesa</p>
+        <Card>
+          <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2">Venta por Mesa</p>
+          {ventaPorMesa.length > 0 ? (
             <div className="h-[120px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={ventaPorMesa} layout="vertical" margin={{ left: 0, right: 5, top: 0, bottom: 0 }}>
@@ -936,9 +1033,11 @@ function BillarCharts({ partidas, total }: { partidas: import('../types').Partid
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </Card>
-        </div>
-      )}
+          ) : (
+            <p className="text-xs text-white/30 text-center py-8">No hay ventas registradas</p>
+          )}
+        </Card>
+      </div>
     </div>
   )
 }

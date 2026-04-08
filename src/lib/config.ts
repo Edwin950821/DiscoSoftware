@@ -1,5 +1,9 @@
-// API Backend en Render
-export const API_BASE = 'https://monastery-backend-dmby.onrender.com'
+// API Backend
+// En desarrollo (npm run dev) → backend local en :8081
+// En producción (npm run build) → backend en Render
+export const API_BASE = import.meta.env.DEV
+  ? 'http://localhost:8081'
+  : 'https://monastery-backend-dmby.onrender.com'
 export const API_DISCO = `${API_BASE}/api/disco`
 export const API_MANAGEMENT = `${API_DISCO}/management`
 export const API_PEDIDOS = `${API_DISCO}/pedidos`

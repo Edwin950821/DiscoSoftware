@@ -149,6 +149,17 @@ export function useBillar() {
     await refetch()
   }
 
+  const fetchPartidasPorFecha = useCallback(async (fecha: string): Promise<PartidaBillar[]> => {
+    const res = await apiFetch(`${API_BILLAR}/partidas?fecha=${encodeURIComponent(fecha)}`)
+    if (!res.ok) throw new Error('Error al obtener partidas')
+    const data = await res.json()
+    return data.map((p: any) => ({
+      ...p,
+      id: String(p.id),
+      mesaBillarId: String(p.mesaBillarId),
+    })) as PartidaBillar[]
+  }, [])
+
   const partidasFinalizadas = useMemo(() => partidas.filter(p => p.estado === 'FINALIZADA'), [partidas])
   const totalBillarHoy = useMemo(() => partidasFinalizadas.reduce((s, p) => s + (p.total || 0), 0), [partidasFinalizadas])
 
@@ -164,6 +175,7 @@ export function useBillar() {
     trasladarPartida,
     editarPartida,
     eliminarPartida,
+    fetchPartidasPorFecha,
     refetch,
   }
 }
