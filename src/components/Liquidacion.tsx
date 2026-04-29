@@ -9,6 +9,8 @@ import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
 import ImportarInventarioExcel from './ImportarInventarioExcel'
+import ImportarLiquidacionExcel from './ImportarLiquidacionExcel'
+import ImportarComparativoExcel from './ImportarComparativoExcel'
 import { DateRangeFilter } from './ui/DateRangeFilter'
 import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
 import { API_PEDIDOS, apiFetch } from '../lib/config'
@@ -672,7 +674,9 @@ export default function Liquidacion({
           <LiquidacionLista jornadas={jornadas} confirmDelete={confirmDeleteJ}
             setConfirmDelete={setConfirmDeleteJ} handleEliminar={handleEliminarJ}
             onNueva={() => { setSesion(nextSesion()); setEditJornadaId(null); setModoLiq('nueva') }}
-            onEditar={editarJornada} />
+            onEditar={editarJornada}
+            productos={productos} trabajadores={trabajadores} guardarJornada={guardarJornada}
+            agregarTrabajador={agregarTrabajador} />
         )
       )}
 
@@ -701,7 +705,8 @@ export default function Liquidacion({
         ) : (
           <ComparativoLista comparativos={comparativos} expandedId={expandedComp} setExpandedId={setExpandedComp}
             confirmDelete={confirmDeleteC} setConfirmDelete={setConfirmDeleteC}
-            handleEliminar={handleEliminarC} onNuevo={crearNuevoComp} productosLoaded={productos.length > 0} />
+            handleEliminar={handleEliminarC} onNuevo={crearNuevoComp} productosLoaded={productos.length > 0}
+            productos={productos} guardarComparativo={guardarComparativo} />
         )
       )}
 
@@ -725,13 +730,18 @@ export default function Liquidacion({
 
 
 
-function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva, onEditar }: {
+function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva, onEditar, productos, trabajadores, guardarJornada, agregarTrabajador }: {
   jornadas: Jornada[]; confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNueva: () => void; onEditar: (j: Jornada) => void
+  productos: Producto[]; trabajadores: Trabajador[]
+  guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
+  agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
+  const [showImport, setShowImport] = useState(false)
+  const productosLoaded = productos.length > 0 && trabajadores.length > 0
 
   const filtradas = jornadas.filter(j => {
     if (desde && j.fecha < desde) return false
@@ -739,13 +749,45 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
     return true
   })
 
+  const handleImport = async (toImport: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }[]) => {
+    const fallidos: { fecha: string; error: string }[] = []
+    let exitosos = 0
+    for (const j of toImport) {
+      try {
+        await guardarJornada(j)
+        exitosos++
+      } catch (e: any) {
+        fallidos.push({ fecha: j.fecha, error: e?.message ?? 'Error desconocido' })
+      }
+    }
+    if (fallidos.length > 0) {
+      const detalle = fallidos.map(f => `${f.fecha}: ${f.error}`).join('\n')
+      throw new Error(`${exitosos}/${toImport.length} importadas. Fallaron:\n${detalle}`)
+    }
+  }
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <DateRangeFilter desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta}
           total={jornadas.length} filtrados={filtradas.length} />
-        <Btn onClick={onNueva} className="w-full sm:w-auto shrink-0">+ Nueva Liquidacion</Btn>
+        <div className="flex gap-2 w-full sm:w-auto shrink-0">
+          <Btn variant="ghost" onClick={() => setShowImport(true)} disabled={!productosLoaded} className="flex-1 sm:flex-initial">
+            Importar Excel
+          </Btn>
+          <Btn onClick={onNueva} className="flex-1 sm:flex-initial">+ Nueva Liquidacion</Btn>
+        </div>
       </div>
+      {showImport && (
+        <ImportarLiquidacionExcel
+          productos={productos}
+          trabajadores={trabajadores}
+          jornadasExistentes={jornadas}
+          agregarTrabajador={agregarTrabajador}
+          onImport={handleImport}
+          onClose={() => setShowImport(false)}
+        />
+      )}
       {filtradas.length === 0 ? (
         <Card className="text-center py-12 text-white/30 text-sm">
           {jornadas.length === 0 ? 'No hay liquidaciones registradas.' : 'No hay liquidaciones en el periodo seleccionado.'}
@@ -1714,21 +1756,53 @@ function ComparativoNuevo({ fecha, setFecha, lineas, totalConteo, totalTiquets, 
   )
 }
 
-function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, productosLoaded }: {
+function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, productosLoaded, productos, guardarComparativo }: {
   comparativos: ComparativoType[]; expandedId: string | null; setExpandedId: (id: string | null) => void
   confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNuevo: () => void; productosLoaded: boolean
+  productos: Producto[]; guardarComparativo: (comp: ComparativoInput) => Promise<void>
 }) {
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
+  const [showImport, setShowImport] = useState(false)
   const filtrados = comparativos.filter(c => { if (desde && c.fecha < desde) return false; if (hasta && c.fecha > hasta) return false; return true })
+
+  const handleImport = async (toImport: ComparativoInput[]) => {
+    const fallidos: { fecha: string; error: string }[] = []
+    let exitosos = 0
+    for (const comp of toImport) {
+      try {
+        await guardarComparativo(comp)
+        exitosos++
+      } catch (e: any) {
+        fallidos.push({ fecha: comp.fecha, error: e?.message ?? 'Error desconocido' })
+      }
+    }
+    if (fallidos.length > 0) {
+      const detalle = fallidos.map(f => `${f.fecha}: ${f.error}`).join('\n')
+      throw new Error(`${exitosos}/${toImport.length} importados. Fallaron:\n${detalle}`)
+    }
+  }
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <DateRangeFilter desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} total={comparativos.length} filtrados={filtrados.length} />
-        <Btn onClick={onNuevo} disabled={!productosLoaded} className="w-full sm:w-auto shrink-0">{productosLoaded ? '+ Nuevo Comparativo' : 'Cargando...'}</Btn>
+        <div className="flex gap-2 w-full sm:w-auto shrink-0">
+          <Btn variant="ghost" onClick={() => setShowImport(true)} disabled={!productosLoaded} className="flex-1 sm:flex-initial">
+            Importar Excel
+          </Btn>
+          <Btn onClick={onNuevo} disabled={!productosLoaded} className="flex-1 sm:flex-initial">{productosLoaded ? '+ Nuevo Comparativo' : 'Cargando...'}</Btn>
+        </div>
       </div>
+      {showImport && (
+        <ImportarComparativoExcel
+          productos={productos}
+          comparativosExistentes={comparativos}
+          onImport={handleImport}
+          onClose={() => setShowImport(false)}
+        />
+      )}
       {filtrados.length === 0 ? (
         <Card className="text-center py-12 text-white/30 text-sm">{comparativos.length === 0 ? 'No hay comparativos registrados.' : 'No hay comparativos en el periodo seleccionado.'}</Card>
       ) : (

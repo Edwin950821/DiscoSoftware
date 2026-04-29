@@ -10,10 +10,17 @@ export function useComparativos() {
     setComparativos(data.map((c: any) => ({
       ...c,
       id: String(c.id),
-      lineas: (c.lineas || []).map((l: any) => ({
-        ...l,
-        productoId: String(l.productoId),
-      } as LineaComparativo)),
+      lineas: (c.lineas || []).map((l: any) => {
+        const conteo = typeof l.conteo === 'number' ? l.conteo : 0
+        const tiquets = typeof l.tiquets === 'number' ? l.tiquets : 0
+        return {
+          ...l,
+          productoId: String(l.productoId),
+          conteo,
+          tiquets,
+          diferencia: typeof l.diferencia === 'number' ? l.diferencia : tiquets - conteo,
+        } as LineaComparativo
+      }),
     } as Comparativo)))
   }, [])
 
@@ -30,6 +37,7 @@ export function useComparativos() {
         nombre: l.nombre,
         conteo: l.conteo,
         tiquets: l.tiquets,
+        diferencia: typeof l.diferencia === 'number' ? l.diferencia : l.tiquets - l.conteo,
       })),
     })
     await fetchAll()
