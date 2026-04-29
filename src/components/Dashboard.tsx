@@ -139,7 +139,7 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
           </div>
         </div>
         <div className="-mx-2 sm:mx-0">
-        <ResponsiveContainer width="100%" height={220}>
+        <ResponsiveContainer width="100%" height={220} minWidth={0} minHeight={0}>
           <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gradVendido" x1="0" y1="0" x2="0" y2="1">
@@ -170,26 +170,24 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
           {pieData.length > 0 ? (
             <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-center sm:items-start">
               <div className="shrink-0" style={{ width: 140, height: 140 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={pieData} innerRadius={38} outerRadius={62} dataKey="value" paddingAngle={2} strokeWidth={0} isAnimationActive={false}>
-                      {pieData.map(d => <Cell key={d.name} fill={COLORES_PAGO[d.name] || '#888'} />)}
-                    </Pie>
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload?.length) return null
-                        const d = payload[0]
-                        const pct = pieTotal > 0 ? ((Number(d.value) / pieTotal) * 100).toFixed(0) : '0'
-                        return (
-                          <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-3 py-2" style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
-                            <p className="text-[11px] text-white font-medium">{d.name}</p>
-                            <p className="text-[11px] text-white/50">{fmtFull(Number(d.value))} · {pct}%</p>
-                          </div>
-                        )
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <PieChart width={140} height={140}>
+                  <Pie data={pieData} innerRadius={38} outerRadius={62} dataKey="value" paddingAngle={2} strokeWidth={0} isAnimationActive={false}>
+                    {pieData.map(d => <Cell key={d.name} fill={COLORES_PAGO[d.name] || '#888'} />)}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null
+                      const d = payload[0]
+                      const pct = pieTotal > 0 ? ((Number(d.value) / pieTotal) * 100).toFixed(0) : '0'
+                      return (
+                        <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-3 py-2" style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
+                          <p className="text-[11px] text-white font-medium">{d.name}</p>
+                          <p className="text-[11px] text-white/50">{fmtFull(Number(d.value))} · {pct}%</p>
+                        </div>
+                      )
+                    }}
+                  />
+                </PieChart>
               </div>
               <div className="flex-1 space-y-3 pt-2">
                 {pieData.map(d => {

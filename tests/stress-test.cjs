@@ -232,7 +232,6 @@ async function simularMesero(index, token, mesaId, meseroId, productos, stats) {
   }
 }
 
-// ─── MAIN ───────────────────────────────────────────────────
 
 async function main() {
   console.log('')

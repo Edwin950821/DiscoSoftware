@@ -4,6 +4,7 @@ import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
 import { fmtFull } from '../lib/utils'
+import ImportarProductosExcel from './ImportarProductosExcel'
 
 interface Props {
   productos: Producto[]
@@ -22,6 +23,7 @@ export default function Productos({ productos, agregar, actualizar, eliminar }: 
   const [editPrecio, setEditPrecio] = useState('')
   const [error, setError] = useState('')
   const [confirmAction, setConfirmAction] = useState<{ id: string; tipo: 'eliminar' | 'desactivar' | 'activar' } | null>(null)
+  const [showImport, setShowImport] = useState(false)
 
   const existeNombre = (name: string, excludeId?: string) =>
     productos.some(p => p.nombre.toLowerCase() === name.toLowerCase() && p.id !== excludeId)
@@ -123,10 +125,23 @@ export default function Productos({ productos, agregar, actualizar, eliminar }: 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <Btn onClick={() => { setMostrarForm(!mostrarForm); setError('') }} className="w-full sm:w-auto shrink-0">
-          {mostrarForm ? 'Cancelar' : '+ Nuevo'}
-        </Btn>
+        <div className="flex gap-2 w-full sm:w-auto shrink-0">
+          <Btn variant="ghost" onClick={() => setShowImport(true)} className="flex-1 sm:flex-initial">
+            Importar Excel
+          </Btn>
+          <Btn onClick={() => { setMostrarForm(!mostrarForm); setError('') }} className="flex-1 sm:flex-initial">
+            {mostrarForm ? 'Cancelar' : '+ Nuevo'}
+          </Btn>
+        </div>
       </div>
+      {showImport && (
+        <ImportarProductosExcel
+          productos={productos}
+          agregar={agregar}
+          actualizar={actualizar}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       {mostrarForm && (
         <Card className="mb-4">

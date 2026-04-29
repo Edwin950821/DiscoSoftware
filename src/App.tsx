@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import Login from './components/Login'
 import DiasApertura from './components/Jornadas'
 import Configuracion from './components/Configuracion'
@@ -9,6 +9,7 @@ import PedidosMesero from './components/PedidosMesero'
 import Ventas from './components/Ventas'
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const MesasBillar = lazy(() => import('./components/MesasBillar'))
+const DashboardConsolidado = lazy(() => import('./components/DashboardConsolidado'))
 import { Badge } from './components/ui/Badge'
 import { useProductos } from './hooks/useProductos'
 import { useTrabajadores } from './hooks/useTrabajadores'
@@ -16,7 +17,7 @@ import { useJornadas } from './hooks/useJornadas'
 import { useInventarios } from './hooks/useInventarios'
 import { useComparativos } from './hooks/useComparativos'
 import { seedDatabase } from './lib/seedData'
-import type { DiscoRol, View } from './types'
+import type { DiscoRol, NegocioInfo, View } from './types'
 
 interface SessionData {
   accessToken: string
@@ -24,13 +25,24 @@ interface SessionData {
   rol: DiscoRol
   nombre: string
   meseroId?: string
+  negocios: NegocioInfo[]
+  negocioActivo: string | null
 }
 
 function loadSession(): SessionData | null {
   try {
     const raw = sessionStorage.getItem('monastery_session') || localStorage.getItem('monastery_session')
     if (!raw) return null
-    return JSON.parse(raw) as SessionData
+    const parsed = JSON.parse(raw) as Partial<SessionData>
+    return {
+      accessToken: parsed.accessToken ?? '',
+      refreshToken: parsed.refreshToken ?? '',
+      rol: parsed.rol as DiscoRol,
+      nombre: parsed.nombre ?? '',
+      meseroId: parsed.meseroId,
+      negocios: Array.isArray(parsed.negocios) ? parsed.negocios : [],
+      negocioActivo: parsed.negocioActivo ?? null,
+    }
   } catch { return null }
 }
 
@@ -62,6 +74,13 @@ export default function App() {
   const [view, setView] = useState<View>(() => {
     if (!initialSession) return 'login'
     if (initialSession.rol === 'MESERO') return 'pedidos'
+    if (initialSession.rol === 'SUPER') {
+    
+      if (initialSession.negocioActivo) {
+        return loadPremium() ? 'dashboard' : 'liquidacion'
+      }
+      return 'consolidado'
+    }
     return loadPremium() ? 'dashboard' : 'liquidacion'
   })
   const [rol, setRol] = useState<DiscoRol | null>(() => initialSession?.rol ?? null)
@@ -69,6 +88,8 @@ export default function App() {
   const [reloj, setReloj] = useState('')
   const [accessToken, setAccessToken] = useState(() => initialSession?.accessToken ?? '')
   const [meseroId, setMeseroId] = useState(() => initialSession?.meseroId ?? '')
+  const [negocios, setNegocios] = useState<NegocioInfo[]>(() => initialSession?.negocios ?? [])
+  const [negocioActivo, setNegocioActivo] = useState<string | null>(() => initialSession?.negocioActivo ?? null)
   const [mobileMenu, setMobileMenu] = useState(false)
 
   const { productos, agregar: agregarProd, actualizar: actualizarProd, eliminar: eliminarProd } = useProductos()
@@ -80,7 +101,6 @@ export default function App() {
   const [seeded, setSeeded] = useState(false)
   useEffect(() => { seedDatabase().then(() => setSeeded(true)) }, [])
 
-  // Quitar splash de carga cuando la app está lista
   useEffect(() => {
     if (!seeded) return
     const splash = document.getElementById('splash')
@@ -98,18 +118,49 @@ export default function App() {
   }, [])
 
   const clearSession = useCallback(() => {
-    removeSession(); setAccessToken(''); setMeseroId(''); setRol(null); setNombre(''); setView('login')
+    removeSession()
+    setAccessToken(''); setMeseroId(''); setRol(null); setNombre('')
+    setNegocios([]); setNegocioActivo(null)
+    setView('login')
   }, [])
 
   const handleLogout = useCallback(() => {
     clearSession()
   }, [clearSession])
 
-  const handleLogin = (at: string, _rt: string, r: DiscoRol, n: string, mId?: string) => {
-    saveSession({ accessToken: at, refreshToken: at, rol: r, nombre: n, meseroId: mId })
-    // Recargar para que los hooks carguen datos con el token
+  const handleLogin = (at: string, rt: string, r: DiscoRol, n: string, mId: string | undefined, negs: NegocioInfo[]) => {
+    const activo = r === 'SUPER' ? null : (negs[0]?.id ?? null)
+    saveSession({ accessToken: at, refreshToken: rt, rol: r, nombre: n, meseroId: mId, negocios: negs, negocioActivo: activo })
     window.location.reload()
   }
+
+  const cambiarNegocio = useCallback((id: string) => {
+    if (id === negocioActivo) return
+    const session = loadSession()
+    if (!session) return
+    saveSession({ ...session, negocioActivo: id })
+    
+    window.location.reload()
+  }, [negocioActivo])
+
+ 
+  const drillIntoNegocio = useCallback((id: string, nombre: string, slug: string, color: string) => {
+    const session = loadSession()
+    if (!session) return
+    const yaEsta = session.negocios.some(n => n.id === id)
+    const negociosNueva = yaEsta
+      ? session.negocios
+      : [...session.negocios, { id, nombre, slug, colorPrimario: color }]
+    saveSession({ ...session, negocioActivo: id, negocios: negociosNueva })
+    window.location.reload()
+  }, [])
+
+  const volverAlConsolidado = useCallback(() => {
+    const session = loadSession()
+    if (!session) return
+    saveSession({ ...session, negocioActivo: null })
+    window.location.reload()
+  }, [])
 
   const navigate = (v: View) => { setView(v); setMobileMenu(false) }
 
@@ -118,7 +169,13 @@ export default function App() {
 
   const isAdmin = rol === 'ADMINISTRADOR'
   const isMesero = rol === 'MESERO'
-  const rolLabel = isAdmin ? 'Administrador' : isMesero ? 'Mesero' : 'Dueno'
+  const isSuper = rol === 'SUPER'
+  const isSuperDrilled = isSuper && !!negocioActivo
+  const isSuperConsolidado = isSuper && !negocioActivo
+  const canAdminViews = isAdmin || isSuperDrilled
+  const rolLabel = isAdmin ? 'Administrador' : isMesero ? 'Mesero' : isSuper ? 'Super' : 'Dueno'
+  // Negocio activo (para mostrar en header) — admin tiene 1, super drilled tiene el activo, super consolidado no tiene
+  const negocioActivoInfo = negocioActivo ? negocios.find(n => n.id === negocioActivo) : null
   const searchParams = new URLSearchParams(window.location.search)
   const pedidosMode = searchParams.get('mode') === 'pedidos'
   const billarMode = searchParams.get('mode') === 'billar'
@@ -194,13 +251,23 @@ export default function App() {
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col lg:flex-row">
 
 <header className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/[0.07] px-4 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
-          <span className="text-sm font-semibold text-white/80">Monastery</span>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <img src="/assets/M04.png" alt="M" className="h-8 object-contain shrink-0" />
+          {negocioActivoInfo ? (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="w-1.5 h-5 rounded-full shrink-0" style={{ backgroundColor: negocioActivoInfo.colorPrimario }} />
+              <span className="text-sm font-semibold text-white/90 truncate">{negocioActivoInfo.nombre}</span>
+            </div>
+          ) : isSuperConsolidado ? (
+            <span className="text-sm font-semibold text-[#D4AF37]/90">Vista Consolidada</span>
+          ) : (
+            <span className="text-sm font-semibold text-white/80">Monastery</span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-white/25 font-mono">{reloj}</span>
-          {!isAdmin && (
+          {/* Hamburger ELIMINADO: el menú se accede via "Mas" del bottom nav (igual para todos los roles) */}
+          {!isAdmin && !isSuper && (
             <button onClick={handleLogout} className="text-[10px] text-[#FF5050] hover:text-[#FF5050]/80 transition-colors">
               Salir
             </button>
@@ -227,10 +294,26 @@ export default function App() {
               </div>
             </div>
 
+            {isSuper && (
+              <div className="mb-4 pb-4 border-b border-white/[0.07]">
+                <NegocioCard
+                  negocios={negocios}
+                  negocioActivo={negocioActivo}
+                  onChange={(id) => { setMobileMenu(false); cambiarNegocio(id) }}
+                  onVolver={isSuperDrilled ? () => { setMobileMenu(false); volverAlConsolidado() } : undefined}
+                />
+              </div>
+            )}
+            {!isSuper && negocios.length > 1 && negocioActivo && (
+              <div className="mb-4 pb-4 border-b border-white/[0.07]">
+                <NegocioSelector negocios={negocios} negocioActivo={negocioActivo} onChange={cambiarNegocio} />
+              </div>
+            )}
+
             <nav className="space-y-1 mb-5">
               {premiumEnabled && <MobileMenuItem label="Dashboard" active={view === 'dashboard'} onClick={() => navigate('dashboard')}
                 icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>} />}
-              {isAdmin && (
+              {canAdminViews && (
                 <>
                   {premiumEnabled && <>
                     <MobileMenuItem label="Tickets" active={view === 'pedidos'} onClick={() => navigate('pedidos')}
@@ -270,9 +353,30 @@ export default function App() {
           <p className="text-xs text-white/30">MVP</p>
           <p className="text-xs text-white/20 mt-1 font-mono">{reloj}</p>
         </div>
+        {isSuper && (
+          <NegocioCard
+            negocios={negocios}
+            negocioActivo={negocioActivo}
+            onChange={cambiarNegocio}
+            onVolver={isSuperDrilled ? volverAlConsolidado : undefined}
+          />
+        )}
+        {!isSuper && negocios.length > 1 && negocioActivo && (
+          <NegocioSelector negocios={negocios} negocioActivo={negocioActivo} onChange={cambiarNegocio} />
+        )}
+        {/* ADMIN con 1 solo negocio: muestra el nombre como referencia (no es switcher) */}
+        {!isSuper && negocios.length === 1 && negocioActivoInfo && (
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-[#D4AF37]/15">
+            <span className="w-1.5 h-7 rounded-full shrink-0" style={{ backgroundColor: negocioActivoInfo.colorPrimario }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] uppercase tracking-wider text-white/30">Negocio</p>
+              <p className="text-sm font-semibold text-white truncate">{negocioActivoInfo.nombre}</p>
+            </div>
+          </div>
+        )}
         <nav className="flex flex-col gap-1 flex-1">
           {premiumEnabled && <SidebarLink label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />}
-          {isAdmin && (
+          {canAdminViews && (
             <>
               {premiumEnabled && <>
                 <SidebarLink label="Tickets" active={view === 'pedidos'} onClick={() => setView('pedidos')} />
@@ -309,7 +413,7 @@ export default function App() {
         </div>
       </aside>
 
-{isAdmin && (
+{canAdminViews && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-t border-white/[0.07] flex justify-around items-center px-2 py-1.5 safe-bottom">
           {premiumEnabled && <>
             <BottomNavItem label="Home" active={view === 'dashboard'} onClick={() => setView('dashboard')}
@@ -326,9 +430,19 @@ export default function App() {
         </nav>
       )}
 
+      {/* Bottom nav para SUPER consolidado: solo Inicio + Mas */}
+      {isSuperConsolidado && (
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-t border-white/[0.07] flex justify-around items-center px-2 py-1.5 safe-bottom">
+          <BottomNavItem label="Inicio" active={view === 'consolidado'} onClick={() => setView('consolidado')}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/></svg>} />
+          <BottomNavItem label="Mas" active={false} onClick={() => setMobileMenu(true)}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>} />
+        </nav>
+      )}
+
 <main className="flex-1 p-4 lg:p-6 pt-16 lg:pt-6 pb-20 lg:pb-6 overflow-auto">
         {premiumEnabled && view === 'dashboard' && <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}><Dashboard jornadas={jornadas} trabajadores={trabajadores} /></Suspense>}
-        {isAdmin && view === 'liquidacion' && (
+        {canAdminViews && view === 'liquidacion' && (
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
@@ -338,8 +452,8 @@ export default function App() {
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}
           />
         )}
-        {view === 'apertura' && <DiasApertura />}
-        {view === 'inventario' && (
+        {canAdminViews && view === 'apertura' && <DiasApertura />}
+        {canAdminViews && view === 'inventario' && (
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
@@ -350,7 +464,7 @@ export default function App() {
             initialTab="inventario"
           />
         )}
-        {view === 'comparativo' && (
+        {canAdminViews && view === 'comparativo' && (
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
@@ -361,11 +475,11 @@ export default function App() {
             initialTab="comparativo"
           />
         )}
-        {premiumEnabled && isAdmin && view === 'pedidos' && <PedidosAdmin />}
-        {premiumEnabled && isAdmin && view === 'ventas' && <Ventas />}
-        {isAdmin && view === 'billar' && <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}><MesasBillar /></Suspense>}
-        {view === 'productos' && <Productos productos={productos} agregar={agregarProd} actualizar={actualizarProd} eliminar={eliminarProd} />}
-        {view === 'configuracion' && (
+        {premiumEnabled && canAdminViews && view === 'pedidos' && <PedidosAdmin />}
+        {premiumEnabled && canAdminViews && view === 'ventas' && <Ventas />}
+        {canAdminViews && view === 'billar' && <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}><MesasBillar /></Suspense>}
+        {canAdminViews && view === 'productos' && <Productos productos={productos} agregar={agregarProd} actualizar={actualizarProd} eliminar={eliminarProd} />}
+        {canAdminViews && view === 'configuracion' && (
           <Configuracion accessToken={accessToken} trabajadores={trabajadores}
             agregarTrabajador={agregarTrabajador} actualizarTrabajador={actualizarTrabajador} eliminarTrabajador={eliminarTrabajador}
             premiumEnabled={premiumEnabled} onTogglePremium={async (pin: string) => {
@@ -378,7 +492,129 @@ export default function App() {
               return false
             }} />
         )}
+        {isSuperConsolidado && view === 'consolidado' && (
+          <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}>
+            <DashboardConsolidado onSelectNegocio={drillIntoNegocio} />
+          </Suspense>
+        )}
       </main>
+    </div>
+  )
+}
+
+function NegocioSelector({ negocios, negocioActivo, onChange }: { negocios: NegocioInfo[]; negocioActivo: string | null; onChange: (id: string) => void }) {
+  return (
+    <div className="mb-4">
+      <label className="block text-[10px] uppercase tracking-wider text-white/30 mb-1.5 px-1">Negocio activo</label>
+      <select
+        value={negocioActivo ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-white/5 border border-[#D4AF37]/25 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#D4AF37]/60 transition-colors"
+      >
+        {negocios.map(n => (
+          <option key={n.id} value={n.id} className="bg-[#0A0A0A] text-white">{n.nombre}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function NegocioCard({ negocios, negocioActivo, onChange, onVolver }: {
+  negocios: NegocioInfo[]
+  negocioActivo: string | null
+  onChange: (id: string) => void
+  onVolver?: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const activo = negocioActivo ? negocios.find(n => n.id === negocioActivo) : null
+  const otros = negocioActivo ? negocios.filter(n => n.id !== negocioActivo) : negocios
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div className="mb-4">
+      {activo && onVolver && (
+        <button
+          onClick={onVolver}
+          className="flex items-center gap-1 text-[11px] text-white/40 hover:text-[#D4AF37] transition-colors mb-2 px-1"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Consolidado
+        </button>
+      )}
+
+      <div ref={ref} className="relative">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white/[0.04] border border-[#D4AF37]/25 hover:border-[#D4AF37]/50 transition-colors"
+        >
+          {activo ? (
+            <>
+              <span className="w-1.5 h-9 rounded-full shrink-0" style={{ backgroundColor: activo.colorPrimario }} />
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-semibold text-white truncate">{activo.nombre}</p>
+                <p className="text-[10px] text-white/40 truncate">{activo.slug}</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="w-7 h-7 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/></svg>
+              </span>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-semibold text-white truncate">Vista Consolidada</p>
+                <p className="text-[10px] text-white/40 truncate">{negocios.length} negocio(s)</p>
+              </div>
+            </>
+          )}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-white/40 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+
+        {open && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-[#141414] border border-white/[0.08] rounded-lg shadow-xl z-50 overflow-hidden">
+            {/* Si está drilled, mostrar opción de volver al consolidado */}
+            {activo && onVolver && (
+              <button
+                onClick={() => { onVolver(); setOpen(false) }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/[0.04] transition-colors border-b border-white/[0.05]"
+              >
+                <span className="w-7 h-7 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] shrink-0">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/></svg>
+                </span>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-sm text-white truncate">Vista Consolidada</p>
+                  <p className="text-[10px] text-white/40 truncate">Todos los negocios</p>
+                </div>
+              </button>
+            )}
+            {otros.length > 0 ? otros.map(n => (
+              <button
+                key={n.id}
+                onClick={() => { onChange(n.id); setOpen(false) }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/[0.04] transition-colors"
+              >
+                <span className="w-1.5 h-9 rounded-full shrink-0" style={{ backgroundColor: n.colorPrimario }} />
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-sm text-white truncate">{n.nombre}</p>
+                  <p className="text-[10px] text-white/40 truncate">{n.slug}</p>
+                </div>
+              </button>
+            )) : (
+              <div className="p-3">
+                <p className="text-[11px] text-white/40 text-center">No hay otros negocios</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

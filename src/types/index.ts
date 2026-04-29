@@ -1,5 +1,61 @@
-export type DiscoRol = 'ADMINISTRADOR' | 'DUENO' | 'MESERO'
-export type View = 'login' | 'dashboard' | 'liquidacion' | 'apertura' | 'inventario' | 'comparativo' | 'productos' | 'configuracion' | 'pedidos' | 'ventas' | 'billar'
+export type DiscoRol = 'ADMINISTRADOR' | 'DUENO' | 'MESERO' | 'SUPER'
+export type View = 'login' | 'dashboard' | 'liquidacion' | 'apertura' | 'inventario' | 'comparativo' | 'productos' | 'configuracion' | 'pedidos' | 'ventas' | 'billar' | 'consolidado'
+
+export interface NegocioInfo {
+  id: string
+  nombre: string
+  slug: string
+  colorPrimario: string
+  logoUrl?: string
+}
+
+export interface NegocioConsolidado {
+  negocioId: string
+  nombre: string
+  slug: string
+  colorPrimario: string
+  totalVendido: number
+  totalRecibido: number
+  saldo: number
+  jornadasCount: number
+}
+
+export interface TopProducto {
+  productoId: string
+  nombre: string
+  cantidad: number
+  total: number
+}
+
+export interface TopMesero {
+  meseroId: string
+  nombre: string
+  color: string
+  totalVendido: number
+  jornadasCount: number
+}
+
+export interface TendenciaDia {
+  fecha: string
+  total: number
+}
+
+export interface ConsolidadoData {
+  totalVendido: number
+  totalRecibido: number
+  totalSaldo: number
+  totalCortesias: number
+  totalGastos: number
+  jornadasCount: number
+  negociosCount: number
+  pagosTotales?: Record<string, number>
+  totalMesActual?: number
+  totalMesAnterior?: number
+  tendencia30Dias?: TendenciaDia[]
+  topProductos?: TopProducto[]
+  topMeseros?: TopMesero[]
+  porNegocio: NegocioConsolidado[]
+}
 export type TipoPago = 'Datafono' | 'QR' | 'Nequi'
 
 export interface Producto {

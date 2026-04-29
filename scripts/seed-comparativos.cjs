@@ -53,8 +53,7 @@ const prodMap = {
   'Amper (obsequio)': 'dca6ac90-36d7-423e-9759-6da8d6f0a6bc',
 };
 
-// Excel data: [nombre, conteo, tiquets]
-// Semana 1: 2026-03-07
+
 const sem1 = [
   ['Aguila Negra',285,285],['Aguila Light',25,25],['Costeñita',342,342],['Budweiser',24,24],
   ['Coronita',345,345],['Club Colombia',33,33],['Heinekeen',4,4],['Stella Artois',0,0],

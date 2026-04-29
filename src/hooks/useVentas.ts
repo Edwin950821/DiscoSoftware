@@ -8,8 +8,6 @@ export function useVentas() {
   const fetchCuentas = useCallback(async () => {
     const hoy = getHoy()
     const data = await db.cuentas.where('jornadaFecha').equals(hoy).toArray()
-
-    // Enriquecer con pedidos
     const enriched = await Promise.all(data.map(async (c: any) => {
       const pedidosList = await db.pedidos.where({ mesaId: c.mesaId, jornadaFecha: hoy }).toArray()
       const activePedidos = pedidosList

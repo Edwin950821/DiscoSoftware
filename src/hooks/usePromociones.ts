@@ -20,7 +20,6 @@ export function usePromociones() {
     regaloProductoId: string
     regaloCantidad: number
   }) => {
-    // Resolver nombres de productos
     const compraProds = await Promise.all(
       req.compraProductoIds.map(id => db.productos.get(Number(id)))
     )

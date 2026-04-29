@@ -1,18 +1,26 @@
 import { useState, useMemo } from 'react'
 import { API_AUTH } from '../lib/config'
-import type { DiscoRol } from '../types'
+import type { DiscoRol, NegocioInfo } from '../types'
 import TerminosCondiciones from './TerminosCondiciones'
 import PoliticaPrivacidad from './PoliticaPrivacidad'
 
 interface LoginProps {
-  onLogin: (accessToken: string, refreshToken: string, rol: DiscoRol, nombre: string, meseroId?: string) => void
+  onLogin: (accessToken: string, refreshToken: string, rol: DiscoRol, nombre: string, meseroId: string | undefined, negocios: NegocioInfo[]) => void
 }
 
 export default function Login({ onLogin }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(() => {
+    try {
+      if (sessionStorage.getItem('monastery_session_expired') === '1') {
+        sessionStorage.removeItem('monastery_session_expired')
+        return 'Tu sesion expiro. Por favor inicia sesion nuevamente.'
+      }
+    } catch { /* noop */ }
+    return ''
+  })
   const [loading, setLoading] = useState(false)
   const [showTerminos, setShowTerminos] = useState(false)
   const [showPolitica, setShowPolitica] = useState(false)
@@ -35,14 +43,19 @@ export default function Login({ onLogin }: LoginProps) {
         body: JSON.stringify({ username: username.trim().toLowerCase(), password, rol: 'ADMINISTRADOR' }),
       })
       if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        setError(data?.message || 'Credenciales inválidas')
+        if (res.status === 401 || res.status === 403) {
+          setError('Usuario o contraseña incorrectos')
+        } else {
+          const data = await res.json().catch(() => null)
+          setError(data?.message || 'Usuario o contraseña incorrectos')
+        }
         return
       }
       const data = await res.json()
-      onLogin(data.accessToken || '', data.refreshToken || '', data.rol as DiscoRol, data.nombre, data.meseroId || undefined)
+      const negocios: NegocioInfo[] = Array.isArray(data.negocios) ? data.negocios : []
+      onLogin(data.accessToken || '', data.refreshToken || '', data.rol as DiscoRol, data.nombre, data.meseroId || undefined, negocios)
     } catch {
-      setError('Error de conexión con el servidor')
+      setError('No se pudo conectar con el servidor. Intenta nuevamente.')
     } finally {
       setLoading(false)
     }

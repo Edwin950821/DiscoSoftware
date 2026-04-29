@@ -46,8 +46,6 @@ export default function MesasBillar() {
   const [editPartidaMinutos, setEditPartidaMinutos] = useState('')
   const [editPartidaTotal, setEditPartidaTotal] = useState('')
   const [confirmDeletePartida, setConfirmDeletePartida] = useState<string | null>(null)
-
-  // Historial de jornadas pasadas
   const [expandedJornadaId, setExpandedJornadaId] = useState<string | null>(null)
   const [partidasPorJornada, setPartidasPorJornada] = useState<Record<string, PartidaBillar[]>>({})
   const [loadingJornadaPartidas, setLoadingJornadaPartidas] = useState<string | null>(null)
@@ -74,8 +72,6 @@ export default function MesasBillar() {
   }, [expandedJornadaId, partidasPorJornada, cargarPartidasJornada])
 
   const mesasActivas = useMemo(() => mesas.filter(m => m.estado === 'EN_JUEGO'), [mesas])
-
-  // --- Drag & drop reorder ---
   const [mesaOrder, setMesaOrder] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('billar_mesa_order')
@@ -741,7 +737,6 @@ export default function MesasBillar() {
               <button disabled={loading} onClick={async () => {
                 setLoading(true)
                 try {
-                  // Buscar de qué fecha era la partida (puede estar en partidasFinalizadas o en alguna jornada expandida)
                   const fechaPartida =
                     partidasFinalizadas.find(p => p.id === confirmDeletePartida)?.jornadaFecha ||
                     Object.values(partidasPorJornada).flat().find(p => p.id === confirmDeletePartida)?.jornadaFecha
@@ -867,7 +862,6 @@ function MesaCard({ mesa, onPlay, onFinish, onTransfer, onEdit, onDelete }: { me
 }
 
 function parseUTC(dt: string) {
-  // Truncar nanosegundos a milisegundos (JS solo soporta 3 decimales)
   const clean = dt.replace(/(\.\d{3})\d+/, '$1')
   return new Date(clean.endsWith('Z') ? clean : clean + 'Z').getTime()
 }
@@ -988,13 +982,11 @@ function BillarCharts({ partidas, total }: { partidas: import('../types').Partid
           {pieData.length > 0 ? (
             <div className="flex items-center gap-4">
               <div className="w-[120px] h-[120px] shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={pieData} dataKey="total" nameKey="nombre" cx="50%" cy="50%" innerRadius={30} outerRadius={50} paddingAngle={3} strokeWidth={0} isAnimationActive={false}>
-                      {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
+                <PieChart width={120} height={120}>
+                  <Pie data={pieData} dataKey="total" nameKey="nombre" cx="50%" cy="50%" innerRadius={30} outerRadius={50} paddingAngle={3} strokeWidth={0} isAnimationActive={false}>
+                    {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  </Pie>
+                </PieChart>
               </div>
               <div className="flex-1 space-y-1.5">
                 {pieData.map((v, i) => (
@@ -1020,7 +1012,7 @@ function BillarCharts({ partidas, total }: { partidas: import('../types').Partid
           <p className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2">Venta por Mesa</p>
           {ventaPorMesa.length > 0 ? (
             <div className="h-[120px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart data={ventaPorMesa} layout="vertical" margin={{ left: 0, right: 5, top: 0, bottom: 0 }}>
                   <XAxis type="number" tickFormatter={v => fmtCOP(v)} tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 9 }} axisLine={false} tickLine={false} />
                   <YAxis type="category" dataKey="nombre" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }} axisLine={false} tickLine={false} width={55} />

@@ -99,7 +99,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
     }
     setPwLoading(true)
     try {
-      // Get current user from session
+    
       const raw = sessionStorage.getItem('monastery_session') || localStorage.getItem('monastery_session')
       if (!raw) { setPwMsg({ text: 'Sesion no encontrada', ok: false }); return }
       const session = JSON.parse(raw)
@@ -107,13 +107,11 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
       const user = users.find(u => u.nombre === session.nombre)
       if (!user) { setPwMsg({ text: 'Usuario no encontrado', ok: false }); return }
 
-      // Verify current password
       const currentHash = await hashPassword(currentPassword)
       if (currentHash !== user.passwordHash) {
         setPwMsg({ text: 'Contrasena actual incorrecta', ok: false }); return
       }
 
-      // Update password
       const newHash = await hashPassword(newPassword)
       await db.users.update(user.id!, { passwordHash: newHash })
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')

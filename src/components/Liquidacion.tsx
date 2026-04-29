@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type {
   Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago,
   Inventario as InventarioType, LineaInventario, InventarioInput,
@@ -8,6 +8,7 @@ import type {
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
+import ImportarInventarioExcel from './ImportarInventarioExcel'
 import { DateRangeFilter } from './ui/DateRangeFilter'
 import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
 import { API_PEDIDOS, apiFetch } from '../lib/config'
@@ -257,10 +258,10 @@ export default function Liquidacion({
   const [sesion, setSesion] = useState('')
   const [fechaLiq, setFechaLiq] = useState(new Date().toISOString().split('T')[0])
   const [liquidaciones, _setLiquidaciones] = useState<LiquidacionTrabajador[]>([])
-  const [liqHistory, setLiqHistory] = useState<LiquidacionTrabajador[][]>([])
+  const liqHistoryRef = useRef<LiquidacionTrabajador[][]>([])
   const setLiquidaciones: typeof _setLiquidaciones = (val) => {
     _setLiquidaciones(prev => {
-      setLiqHistory(h => [...h.slice(-30), prev])
+      liqHistoryRef.current = [...liqHistoryRef.current.slice(-30), prev]
       return typeof val === 'function' ? val(prev) : val
     })
   }
@@ -275,10 +276,10 @@ export default function Liquidacion({
   const [editInvId, setEditInvId] = useState<string | null>(null)
   const [fechaInv, setFechaInv] = useState(new Date().toISOString().split('T')[0])
   const [lineasInv, _setLineasInv] = useState<LineaInventario[]>([])
-  const [invHistory, setInvHistory] = useState<LineaInventario[][]>([])
+  const invHistoryRef = useRef<LineaInventario[][]>([])
   const setLineasInv: typeof _setLineasInv = (val) => {
     _setLineasInv(prev => {
-      setInvHistory(h => [...h.slice(-30), prev])
+      invHistoryRef.current = [...invHistoryRef.current.slice(-30), prev]
       return typeof val === 'function' ? val(prev) : val
     })
   }
@@ -297,21 +298,19 @@ export default function Liquidacion({
 
 
   const undoLiq = useCallback(() => {
-    setLiqHistory(h => {
-      if (h.length === 0) return h
-      const prev = h[h.length - 1]
-      _setLiquidaciones(prev)
-      return h.slice(0, -1)
-    })
+    const h = liqHistoryRef.current
+    if (h.length === 0) return
+    const prev = h[h.length - 1]
+    liqHistoryRef.current = h.slice(0, -1)
+    _setLiquidaciones(prev)
   }, [])
 
   const undoInv = useCallback(() => {
-    setInvHistory(h => {
-      if (h.length === 0) return h
-      const prev = h[h.length - 1]
-      _setLineasInv(prev)
-      return h.slice(0, -1)
-    })
+    const h = invHistoryRef.current
+    if (h.length === 0) return
+    const prev = h[h.length - 1]
+    invHistoryRef.current = h.slice(0, -1)
+    _setLineasInv(prev)
   }, [])
 
   useEffect(() => {
@@ -388,7 +387,7 @@ export default function Liquidacion({
     setLiquidaciones(prev => prev.map(l => l.trabajadorId === trabajadorId ? { ...l, totalVenta: total } : l))
   }
 
-  const updateLineaCantidad = (trabajadorId: string, productoId: string, cantidad: number) => {
+  const updateLineaCantidad = useCallback((trabajadorId: string, productoId: string, cantidad: number) => {
     if (cantidad < 0) return
     updateLiquidacion(trabajadorId, liq => {
       const lineas = liq.lineas.map(l =>
@@ -397,7 +396,7 @@ export default function Liquidacion({
       const totalVenta = lineas.reduce((s, l) => s + l.total, 0)
       return { ...liq, lineas, totalVenta }
     })
-  }
+  }, [])
 
 
   const addTransaccion = (trabajadorId: string, tipo: TipoPago) => {
@@ -688,7 +687,8 @@ export default function Liquidacion({
         ) : (
           <InventarioLista inventarios={inventarios} expandedId={expandedInv} setExpandedId={setExpandedInv}
             confirmDelete={confirmDeleteI} setConfirmDelete={setConfirmDeleteI}
-            handleEliminar={handleEliminarI} onNuevo={crearNuevoInv} onEditar={editarInv} productosLoaded={productos.length > 0} />
+            handleEliminar={handleEliminarI} onNuevo={crearNuevoInv} onEditar={editarInv} productosLoaded={productos.length > 0}
+            productos={productos} guardarInventario={guardarInventario} />
         )
       )}
 
@@ -1216,23 +1216,13 @@ function LiquidacionNueva({
                   </thead>
                   <tbody>
                     {activeLiq.lineas.map(l => (
-                      <tr key={`${l.productoId}-${l.nombre}`} className="border-b border-white/5 hover:bg-white/[0.02]">
-                        <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
-                        <td className="py-2 px-1 text-center text-xs text-white/45">{fmtCOP(l.precioUnitario)}</td>
-                        <td className="py-1 px-1">
-                          <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, l.cantidad - 1)}
-                              className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">-</button>
-                            <input type="number" min={0} value={l.cantidad || ''}
-                              onChange={e => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, Number(e.target.value) || 0)}
-                              onKeyDown={handleTableArrowNav}
-                              className="bg-white/5 border border-white/10 rounded px-1 py-1 text-xs text-white w-12 text-center focus:outline-none focus:border-[#CDA52F]/50" />
-                            <button onClick={() => updateLineaCantidad(activeLiq.trabajadorId, l.productoId, l.cantidad + 1)}
-                              className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">+</button>
-                          </div>
-                        </td>
-                        <td className="py-2 pl-1 text-right text-xs font-bold text-white/30">{l.total > 0 ? <span className="text-[#FFE66D]">{fmtCOP(l.total)}</span> : '-'}</td>
-                      </tr>
+                      <LineaProductoRow
+                        key={`${l.productoId}-${l.nombre}`}
+                        linea={l}
+                        trabajadorId={activeLiq.trabajadorId}
+                        onUpdate={updateLineaCantidad}
+                        onArrowNav={handleTableArrowNav}
+                      />
                     ))}
                   </tbody>
                   {activeLiq.lineas.some(l => l.total > 0) && (
@@ -1524,21 +1514,55 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
   )
 }
 
-function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, onEditar, productosLoaded }: {
+function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, onEditar, productosLoaded, productos, guardarInventario }: {
   inventarios: InventarioType[]; expandedId: string | null; setExpandedId: (id: string | null) => void
   confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNuevo: () => void; onEditar: (inv: InventarioType) => void; productosLoaded: boolean
+  productos: Producto[]; guardarInventario: (inv: InventarioInput) => Promise<void>
 }) {
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
+  const [showImport, setShowImport] = useState(false)
   const filtrados = inventarios.filter(inv => { if (desde && inv.fecha < desde) return false; if (hasta && inv.fecha > hasta) return false; return true })
+
+  const handleImport = async (toImport: InventarioInput[]) => {
+    // Importa secuencialmente. Captura errores por inventario para reportar
+    // cuáles se guardaron y cuáles fallaron sin abortar todo.
+    const fallidos: { fecha: string; error: string }[] = []
+    let exitosos = 0
+    for (const inv of toImport) {
+      try {
+        await guardarInventario(inv)
+        exitosos++
+      } catch (e: any) {
+        fallidos.push({ fecha: inv.fecha, error: e?.message ?? 'Error desconocido' })
+      }
+    }
+    if (fallidos.length > 0) {
+      const detalle = fallidos.map(f => `${f.fecha}: ${f.error}`).join('\n')
+      throw new Error(`${exitosos}/${toImport.length} importados. Fallaron:\n${detalle}`)
+    }
+  }
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <DateRangeFilter desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} total={inventarios.length} filtrados={filtrados.length} />
-        <Btn onClick={onNuevo} disabled={!productosLoaded} className="w-full sm:w-auto shrink-0">{productosLoaded ? '+ Nuevo Inventario' : 'Cargando...'}</Btn>
+        <div className="flex gap-2 w-full sm:w-auto shrink-0">
+          <Btn variant="ghost" onClick={() => setShowImport(true)} disabled={!productosLoaded} className="flex-1 sm:flex-initial">
+            Importar Excel
+          </Btn>
+          <Btn onClick={onNuevo} disabled={!productosLoaded} className="flex-1 sm:flex-initial">{productosLoaded ? '+ Nuevo' : 'Cargando...'}</Btn>
+        </div>
       </div>
+      {showImport && (
+        <ImportarInventarioExcel
+          productos={productos}
+          inventariosExistentes={inventarios}
+          onImport={handleImport}
+          onClose={() => setShowImport(false)}
+        />
+      )}
       {filtrados.length === 0 ? (
         <Card className="text-center py-12 text-white/30 text-sm">{inventarios.length === 0 ? 'No hay inventarios registrados.' : 'No hay inventarios en el periodo seleccionado.'}</Card>
       ) : (
@@ -1819,10 +1843,27 @@ const FILAS_SEM: { key: string; label: string; color: string; bold?: boolean; is
 ]
 
 function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: InventarioType[] }) {
-  const [desde, setDesde] = useState('')
-  const [hasta, setHasta] = useState('')
+  // Default: rango que cubre TODAS las jornadas existentes (para que se vea algo al abrir el tab).
+  const [desde, setDesde] = useState(() => {
+    if (jornadas.length === 0) return ''
+    return jornadas.reduce((min, j) => j.fecha < min ? j.fecha : min, jornadas[0].fecha)
+  })
+  const [hasta, setHasta] = useState(() => {
+    if (jornadas.length === 0) return ''
+    return jornadas.reduce((max, j) => j.fecha > max ? j.fecha : max, jornadas[0].fecha)
+  })
   const [semanaActiva, setSemanaActiva] = useState<number | null>(null)
   const [jornadaActivaId, setJornadaActivaId] = useState<string | null>(null)
+
+  // Si las jornadas cargan async después del mount y los filtros estaban vacíos, los autocompleta.
+  useEffect(() => {
+    if (jornadas.length === 0) return
+    if (!desde && !hasta) {
+      const fechas = jornadas.map(j => j.fecha)
+      setDesde(fechas.reduce((min, f) => f < min ? f : min))
+      setHasta(fechas.reduce((max, f) => f > max ? f : max))
+    }
+  }, [jornadas]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const jornadasFiltradas = useMemo(() => {
     if (!desde || !hasta) return []
@@ -2044,3 +2085,32 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
     </div>
   )
 }
+
+const LineaProductoRow = React.memo(function LineaProductoRow({
+  linea, trabajadorId, onUpdate, onArrowNav,
+}: {
+  linea: LiquidacionTrabajador['lineas'][number]
+  trabajadorId: string
+  onUpdate: (tid: string, productoId: string, cantidad: number) => void
+  onArrowNav: (e: React.KeyboardEvent<HTMLInputElement>) => void
+}) {
+  return (
+    <tr className="border-b border-white/5 hover:bg-white/[0.02]">
+      <td className="py-2 pr-2 text-white/80 text-xs">{linea.nombre}</td>
+      <td className="py-2 px-1 text-center text-xs text-white/45">{fmtCOP(linea.precioUnitario)}</td>
+      <td className="py-1 px-1">
+        <div className="flex items-center justify-center gap-1">
+          <button onClick={() => onUpdate(trabajadorId, linea.productoId, linea.cantidad - 1)}
+            className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">-</button>
+          <input type="number" min={0} value={linea.cantidad || ''}
+            onChange={e => onUpdate(trabajadorId, linea.productoId, Number(e.target.value) || 0)}
+            onKeyDown={onArrowNav}
+            className="bg-white/5 border border-white/10 rounded px-1 py-1 text-xs text-white w-12 text-center focus:outline-none focus:border-[#CDA52F]/50" />
+          <button onClick={() => onUpdate(trabajadorId, linea.productoId, linea.cantidad + 1)}
+            className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">+</button>
+        </div>
+      </td>
+      <td className="py-2 pl-1 text-right text-xs font-bold text-white/30">{linea.total > 0 ? <span className="text-[#FFE66D]">{fmtCOP(linea.total)}</span> : '-'}</td>
+    </tr>
+  )
+})
