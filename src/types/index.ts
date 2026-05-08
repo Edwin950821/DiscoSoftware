@@ -1,12 +1,17 @@
 export type DiscoRol = 'ADMINISTRADOR' | 'DUENO' | 'MESERO' | 'SUPER'
 export type View = 'login' | 'dashboard' | 'liquidacion' | 'apertura' | 'inventario' | 'comparativo' | 'productos' | 'configuracion' | 'pedidos' | 'ventas' | 'billar' | 'consolidado'
 
+export type TipoNegocio = 'DISCOTECA' | 'BILLAR'
+
+export type RangoTemporal = 'HOY' | '7D' | '30D' | 'MES_ACTUAL' | 'ESTE_ANO' | 'TODO' | 'PERSONALIZADO'
+
 export interface NegocioInfo {
   id: string
   nombre: string
   slug: string
   colorPrimario: string
   logoUrl?: string
+  tipo?: TipoNegocio
 }
 
 export interface NegocioConsolidado {
@@ -14,10 +19,13 @@ export interface NegocioConsolidado {
   nombre: string
   slug: string
   colorPrimario: string
+  tipo: TipoNegocio
   totalVendido: number
   totalRecibido: number
   saldo: number
   jornadasCount: number
+  diaSemanaMasFuerte?: string | null
+  sparkline7Dias?: number[]
 }
 
 export interface TopProducto {
@@ -33,11 +41,30 @@ export interface TopMesero {
   color: string
   totalVendido: number
   jornadasCount: number
+  negocioId: string
+  negocioNombre: string
+  negocioColor: string
 }
 
 export interface TendenciaDia {
   fecha: string
   total: number
+}
+
+export interface BarraComparativo {
+  negocioId: string
+  negocioNombre: string
+  negocioColor: string
+  negocioTipo: TipoNegocio
+  totalVendido: number
+  totalNegocio: number
+  pctDelNegocio: number
+  jornadasCount: number
+  pagosEfectivo: number
+  pagosQR: number
+  pagosNequi: number
+  pagosDatafono: number
+  pagosVales: number
 }
 
 export interface ConsolidadoData {
@@ -54,6 +81,7 @@ export interface ConsolidadoData {
   tendencia30Dias?: TendenciaDia[]
   topProductos?: TopProducto[]
   topMeseros?: TopMesero[]
+  comparativoBarras?: BarraComparativo[]
   porNegocio: NegocioConsolidado[]
 }
 export type TipoPago = 'Datafono' | 'QR' | 'Nequi'
