@@ -39,9 +39,14 @@ interface ProductoFaltante {
   precioEstimado: number
 }
 
+interface TrabajadorNoMatch {
+  nombreExcel: string
+  sugerenciaId?: string
+}
+
 interface ParseResult {
   jornadas: ParsedJornada[]
-  trabajadoresNoEncontrados: string[]
+  trabajadoresNoEncontrados: TrabajadorNoMatch[]
   productosNoEncontrados: ProductoFaltante[]
   globalWarnings: string[]
 }
@@ -70,6 +75,35 @@ function normalizar(s: string): string {
     .replace(/(\d+)\s*(lt|l|litro|litros)\b/g, '$1l')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function normalizarMesero(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/^(liq\s*\.?|liq\s+diaria|sr\s*\.?|sra\s*\.?|srta\s*\.?)\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buscarTrabajadorFuzzy(nombreExcel: string, trabajadores: Trabajador[]): { trabajador?: Trabajador; sugerencia?: Trabajador } {
+  const target = normalizarMesero(nombreExcel)
+  if (!target) return {}
+  const exact = trabajadores.find(t => normalizarMesero(t.nombre) === target)
+  if (exact) return { trabajador: exact }
+  const firstWord = target.split(' ')[0]
+  if (firstWord) {
+    const fw = trabajadores.filter(t => normalizarMesero(t.nombre).split(' ')[0] === firstWord)
+    if (fw.length === 1) return { trabajador: fw[0] }
+    if (fw.length > 1) return { sugerencia: fw[0] }
+  }
+  const sub = trabajadores.filter(t => {
+    const n = normalizarMesero(t.nombre)
+    return n.includes(target) || target.includes(n)
+  })
+  if (sub.length === 1) return { trabajador: sub[0] }
+  if (sub.length > 1) return { sugerencia: sub[0] }
+  return {}
 }
 
 function buscarProducto(nombreExcel: string, productos: Producto[]): { producto?: Producto; ambiguo: boolean; candidatos?: string[] } {
@@ -281,10 +315,15 @@ function parseDateBlock(
   return { liq, problemas, tieneData, productosFaltantes }
 }
 
-export function parseLiquidacionWorkbook(buf: ArrayBuffer, productos: Producto[], trabajadores: Trabajador[]): ParseResult {
+export function parseLiquidacionWorkbook(
+  buf: ArrayBuffer,
+  productos: Producto[],
+  trabajadores: Trabajador[],
+  trabajadorOverrides: Record<string, string> = {},
+): ParseResult {
   const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
   const globalWarnings: string[] = []
-  const trabajadoresNoEncontrados: string[] = []
+  const trabajadoresNoEncontradosMap = new Map<string, TrabajadorNoMatch>()
   const productosFaltantesMap = new Map<string, ProductoFaltante>()
 
   const porFecha = new Map<string, ParsedJornada>()
@@ -302,9 +341,22 @@ export function parseLiquidacionWorkbook(buf: ArrayBuffer, productos: Producto[]
       || sheetName.replace(/^Liq Diaria\s+/i, '').trim()
       || (isBarra ? 'Barra' : 'Sin nombre')
 
-    const trabajador = trabajadores.find(t => normalizar(t.nombre) === normalizar(trabajadorNombreExcel))
-    if (!trabajador && !trabajadoresNoEncontrados.includes(trabajadorNombreExcel)) {
-      trabajadoresNoEncontrados.push(trabajadorNombreExcel)
+    const overrideId = trabajadorOverrides[trabajadorNombreExcel]
+    let trabajador: Trabajador | undefined
+    if (overrideId) {
+      trabajador = trabajadores.find(t => t.id === overrideId)
+    }
+    let sugerencia: Trabajador | undefined
+    if (!trabajador) {
+      const fz = buscarTrabajadorFuzzy(trabajadorNombreExcel, trabajadores)
+      trabajador = fz.trabajador
+      sugerencia = fz.sugerencia
+    }
+    if (!trabajador && !trabajadoresNoEncontradosMap.has(trabajadorNombreExcel)) {
+      trabajadoresNoEncontradosMap.set(trabajadorNombreExcel, {
+        nombreExcel: trabajadorNombreExcel,
+        sugerenciaId: sugerencia?.id,
+      })
     }
 
     const fechas = detectarFechas(sh)
@@ -342,6 +394,7 @@ export function parseLiquidacionWorkbook(buf: ArrayBuffer, productos: Producto[]
 
   const jornadas = Array.from(porFecha.values()).sort((a, b) => a.fecha.localeCompare(b.fecha))
   const productosNoEncontrados = Array.from(productosFaltantesMap.values())
+  const trabajadoresNoEncontrados = Array.from(trabajadoresNoEncontradosMap.values())
   return { jornadas, trabajadoresNoEncontrados, productosNoEncontrados, globalWarnings }
 }
 
@@ -355,10 +408,14 @@ interface Props {
   onClose: () => void
 }
 
+const NUEVO_TRABAJADOR = '__nuevo__'
+
 export default function ImportarLiquidacionExcel({ productos, trabajadores, jornadasExistentes, agregarTrabajador, agregarProducto, onImport, onClose }: Props) {
   const [parsing, setParsing] = useState(false)
-  const [creandoTrabajadores, setCreandoTrabajadores] = useState(false)
+  const [aplicandoMapeo, setAplicandoMapeo] = useState(false)
   const [trabajadoresCreados, setTrabajadoresCreados] = useState<string[]>([])
+  const [trabajadorMapping, setTrabajadorMapping] = useState<Record<string, string>>({})
+  const [trabajadorOverrides, setTrabajadorOverrides] = useState<Record<string, string>>({})
   const [creandoProductos, setCreandoProductos] = useState(false)
   const [productosCreados, setProductosCreados] = useState<string[]>([])
   const [productosEditables, setProductosEditables] = useState<ProductoFaltante[]>([])
@@ -374,21 +431,33 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
 
   const fechasExistentes = new Set(jornadasExistentes.map(j => j.fecha))
 
-  const reparsear = useCallback((buf: ArrayBuffer) => {
-    const result = parseLiquidacionWorkbook(buf, productos, trabajadores)
-    if (result.jornadas.length === 0 && result.productosNoEncontrados.length === 0) {
+  const initMappingFromResult = useCallback((result: ParseResult) => {
+    setTrabajadorMapping(prev => {
+      const next: Record<string, string> = { ...prev }
+      for (const t of result.trabajadoresNoEncontrados) {
+        if (next[t.nombreExcel]) continue
+        next[t.nombreExcel] = t.sugerenciaId ?? NUEVO_TRABAJADOR
+      }
+      return next
+    })
+  }, [])
+
+  const reparsear = useCallback((buf: ArrayBuffer, overrides: Record<string, string> = trabajadorOverrides) => {
+    const result = parseLiquidacionWorkbook(buf, productos, trabajadores, overrides)
+    if (result.jornadas.length === 0 && result.productosNoEncontrados.length === 0 && result.trabajadoresNoEncontrados.length === 0) {
       setError(result.globalWarnings[0] || 'No se encontraron hojas Liq Diaria * o Liq Barra con datos')
       return
     }
     setParsed(result)
     setProductosEditables(result.productosNoEncontrados.map(p => ({ ...p })))
+    initMappingFromResult(result)
     const existentes = new Set(jornadasExistentes.map(j => j.fecha))
     const initSel: Record<string, boolean> = {}
     for (const j of result.jornadas) {
       if (!existentes.has(j.fecha)) initSel[j.fecha] = true
     }
     setSeleccionados(initSel)
-  }, [productos, trabajadores, jornadasExistentes])
+  }, [productos, trabajadores, jornadasExistentes, trabajadorOverrides, initMappingFromResult])
 
   useEffect(() => {
     if (!needsReparse || !fileBufRef.current) return
@@ -411,33 +480,12 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
       const buf = await file.arrayBuffer()
       fileBufRef.current = buf
       const result = parseLiquidacionWorkbook(buf, productos, trabajadores)
-
-      if (result.trabajadoresNoEncontrados.length > 0) {
-        setCreandoTrabajadores(true)
-        const creados: string[] = []
-        for (let i = 0; i < result.trabajadoresNoEncontrados.length; i++) {
-          const raw = result.trabajadoresNoEncontrados[i]
-          const nombre = capitalizar(raw)
-          try {
-            await agregarTrabajador({
-              nombre,
-              color: COLORES_TRABAJADOR[(trabajadores.length + i) % COLORES_TRABAJADOR.length],
-              avatar: nombre.slice(0, 2).toUpperCase(),
-              activo: true,
-            })
-            creados.push(nombre)
-          } catch (e: any) {
-            console.warn(`No se pudo crear trabajador ${nombre}:`, e?.message)
-          }
-        }
-        setTrabajadoresCreados(creados)
-        setCreandoTrabajadores(false)
-        setNeedsReparse(true)
-      } else if (result.jornadas.length === 0 && result.productosNoEncontrados.length === 0) {
+      if (result.jornadas.length === 0 && result.productosNoEncontrados.length === 0 && result.trabajadoresNoEncontrados.length === 0) {
         setError(result.globalWarnings[0] || 'No se encontraron hojas Liq Diaria * o Liq Barra con datos')
       } else {
         setParsed(result)
         setProductosEditables(result.productosNoEncontrados.map(p => ({ ...p })))
+        initMappingFromResult(result)
         const initSel: Record<string, boolean> = {}
         for (const j of result.jornadas) {
           if (!fechasExistentes.has(j.fecha)) initSel[j.fecha] = true
@@ -449,6 +497,45 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
     } finally {
       setParsing(false)
     }
+  }
+
+  const updateTrabajadorMapping = (excelName: string, value: string) => {
+    setTrabajadorMapping(prev => ({ ...prev, [excelName]: value }))
+  }
+
+  const handleAplicarMapeo = async () => {
+    if (!parsed) return
+    setAplicandoMapeo(true)
+    setError('')
+    const nuevos: { excelName: string; nombre: string }[] = []
+    const overrides: Record<string, string> = { ...trabajadorOverrides }
+    for (const t of parsed.trabajadoresNoEncontrados) {
+      const choice = trabajadorMapping[t.nombreExcel] ?? NUEVO_TRABAJADOR
+      if (choice === NUEVO_TRABAJADOR) {
+        nuevos.push({ excelName: t.nombreExcel, nombre: capitalizar(t.nombreExcel) })
+      } else {
+        overrides[t.nombreExcel] = choice
+      }
+    }
+    const creados: string[] = []
+    for (let i = 0; i < nuevos.length; i++) {
+      const { nombre } = nuevos[i]
+      try {
+        await agregarTrabajador({
+          nombre,
+          color: COLORES_TRABAJADOR[(trabajadores.length + i) % COLORES_TRABAJADOR.length],
+          avatar: nombre.slice(0, 2).toUpperCase(),
+          activo: true,
+        })
+        creados.push(nombre)
+      } catch (e: any) {
+        console.warn(`No se pudo crear trabajador ${nombre}:`, e?.message)
+      }
+    }
+    setTrabajadoresCreados(prev => [...prev, ...creados])
+    setTrabajadorOverrides(overrides)
+    setAplicandoMapeo(false)
+    setNeedsReparse(true)
   }
 
   const nuevas = parsed?.jornadas.filter(j => !fechasExistentes.has(j.fecha)) ?? []
@@ -572,7 +659,7 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
               <input
                 type="file"
                 accept=".xlsx,.xls"
-                disabled={parsing || creandoTrabajadores}
+                disabled={parsing || aplicandoMapeo}
                 onChange={e => {
                   if (e.target.files?.[0]) handleFile(e.target.files[0])
                   e.target.value = ''
@@ -581,8 +668,8 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
               />
             </label>
             {parsing && <p className="text-xs text-white/40 mt-3 text-center">Analizando...</p>}
-            {creandoTrabajadores && <p className="text-xs text-[#CDA52F] mt-3 text-center">Creando trabajadores faltantes...</p>}
-            {needsReparse && !creandoTrabajadores && <p className="text-xs text-white/40 mt-3 text-center">Sincronizando lista de trabajadores...</p>}
+            {aplicandoMapeo && <p className="text-xs text-[#CDA52F] mt-3 text-center">Aplicando mapeo y creando trabajadores...</p>}
+            {needsReparse && !aplicandoMapeo && <p className="text-xs text-white/40 mt-3 text-center">Sincronizando...</p>}
             {error && <p className="text-xs text-[#FF5050] mt-3 text-center">{error}</p>}
           </div>
         )}
@@ -599,10 +686,44 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
             )}
 
             {parsed.trabajadoresNoEncontrados.length > 0 && (
-              <div className="mb-3 p-3 rounded-lg bg-[#FF5050]/10 border border-[#FF5050]/20">
-                <p className="text-[11px] text-[#FF5050] font-medium mb-1">Trabajadores no encontrados (no se pudieron crear):</p>
-                <p className="text-[11px] text-white/60">{parsed.trabajadoresNoEncontrados.join(', ')}</p>
-                <p className="text-[10px] text-white/40 mt-1">Se omitirán esas hojas. Revisa la conexión y vuelve a importar.</p>
+              <div className="mb-3 p-3 rounded-lg bg-[#FFE66D]/10 border border-[#FFE66D]/20">
+                <p className="text-[11px] text-[#FFE66D] font-medium mb-1">
+                  {parsed.trabajadoresNoEncontrados.length} mesero{parsed.trabajadoresNoEncontrados.length === 1 ? '' : 's'} del Excel sin coincidencia exacta
+                </p>
+                <p className="text-[10px] text-white/60 mb-2">
+                  Elegí a qué mesero del sistema corresponde cada uno (o "Crear nuevo" para agregarlo). Las sugerencias ya vienen pre-seleccionadas cuando el sistema detectó algo similar.
+                </p>
+                <div className="space-y-1 max-h-48 overflow-auto pr-1">
+                  {parsed.trabajadoresNoEncontrados.map(t => {
+                    const choice = trabajadorMapping[t.nombreExcel] ?? NUEVO_TRABAJADOR
+                    return (
+                      <div key={t.nombreExcel} className="flex items-center gap-2">
+                        <span className="text-[11px] text-white/70 flex-1 truncate" title={t.nombreExcel}>
+                          {t.nombreExcel}
+                        </span>
+                        <span className="text-white/30 text-[11px]">→</span>
+                        <select
+                          value={choice}
+                          onChange={e => updateTrabajadorMapping(t.nombreExcel, e.target.value)}
+                          disabled={aplicandoMapeo}
+                          className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50"
+                        >
+                          <option value={NUEVO_TRABAJADOR}>— Crear nuevo "{capitalizar(t.nombreExcel)}" —</option>
+                          {trabajadores.map(tr => (
+                            <option key={tr.id} value={tr.id}>
+                              {tr.nombre}{t.sugerenciaId === tr.id ? ' (sugerido)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="flex justify-end mt-2">
+                  <Btn size="sm" variant="primary" onClick={handleAplicarMapeo} disabled={aplicandoMapeo}>
+                    {aplicandoMapeo ? 'Aplicando...' : 'Aplicar mapeo'}
+                  </Btn>
+                </div>
               </div>
             )}
 

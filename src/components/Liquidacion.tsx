@@ -372,10 +372,7 @@ export default function Liquidacion({
   const handleTabDblClick = (id: string) => {
     const liq = liquidaciones.find(l => l.trabajadorId === id)
     if (!liq) return
-    const tieneVentas = liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0
-    if (tieneVentas) {
-      if (!confirm(`${liq.nombre} tiene ventas ingresadas. ¿Quitar de la liquidacion?`)) return
-    }
+    if (!confirm(`${liq.nombre} — ¿Quitar de la liquidacion?`)) return
     toggleTrabajador(id)
   }
 
@@ -468,8 +465,7 @@ export default function Liquidacion({
   }
 
   const cuadreDia = calcularCuadreDia(liquidaciones)
-  const algunoConVentas = liquidaciones.length > 0 && liquidaciones.some(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
-  const formValidoLiq = sesion.trim() !== '' && algunoConVentas && !fechaLiqDuplicada
+  const formValidoLiq = sesion.trim() !== '' && liquidaciones.length > 0 && !fechaLiqDuplicada
 
   const editarJornada = (j: Jornada) => {
     setSesion(j.sesion)
@@ -485,12 +481,11 @@ export default function Liquidacion({
     if (!formValidoLiq || guardandoLiq) return
     setGuardandoLiq(true)
     try {
-      const liqsConVentas = liquidaciones.filter(liq => liq.lineas.some(l => l.cantidad > 0) || liq.totalVenta > 0)
-      const liqsConEfectivo = liqsConVentas.map(liq => {
+      const liqsAGuardar = liquidaciones.map(liq => {
         const c = calcularLiquidacion(liq)
         return { ...liq, efectivoEntregado: liq.efectivoEntregado > 0 ? liq.efectivoEntregado : c.efectivo }
       })
-      const data = { sesion, fecha: fechaLiq, liquidaciones: liqsConEfectivo }
+      const data = { sesion, fecha: fechaLiq, liquidaciones: liqsAGuardar }
       if (modoLiq === 'editar' && editJornadaId) {
         await actualizarJornada(editJornadaId, data)
         setModalExito('Liquidacion actualizada correctamente')
