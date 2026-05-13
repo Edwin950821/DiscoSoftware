@@ -346,12 +346,9 @@ export default function Liquidacion({
       }
       const t = trabajadores.find(x => x.id === id)
       if (!t) return prev
-      const ultimoInv = inventarios.length > 0 ? inventarios[0] : null
-      const lineasIniciales = productos.filter(p => p.activo).map(p => {
-        const invLinea = ultimoInv?.lineas.find(l => l.productoId === p.id)
-        const cantidad = invLinea?.saldo ?? 0
-        return { productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad, total: p.precio * cantidad }
-      })
+      const lineasIniciales = productos.filter(p => p.activo).map(p => ({
+        productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad: 0, total: 0,
+      }))
       const newLiq: LiquidacionTrabajador = {
         trabajadorId: t.id, nombre: t.nombre, color: t.color, avatar: t.avatar,
         lineas: lineasIniciales, transacciones: [], vales: [], cortesias: [], gastos: [],
