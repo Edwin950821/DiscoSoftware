@@ -43,6 +43,7 @@ function notifySessionExpired() {
   } catch { /* noop */ }
 }
 
+
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const token = getToken()
   if (!token) {
@@ -50,9 +51,6 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     return new Response(JSON.stringify([]), { status: 401, headers: { 'Content-Type': 'application/json' } })
   }
   const negocioActivo = getNegocioActivo()
-  // Endpoints tenant-scoped requieren negocioActivo. SUPER en vista consolidada
-  // no tiene negocioActivo; los hooks (useProductos, useMeseros, etc.) corren igual
-  // en cada render. Devolvemos [] silenciosamente para no spamear backend con 500s.
   const isTenantScoped =
     path.includes('/api/disco/management/') ||
     path.includes('/api/disco/pedidos/') ||
@@ -71,4 +69,24 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     notifySessionExpired()
   }
   return res
+}
+
+export function limpiarNegocioGhostSiNoExiste(): boolean {
+  try {
+    const raw = sessionStorage.getItem('monastery_session') || localStorage.getItem('monastery_session')
+    if (!raw) return false
+    const parsed = JSON.parse(raw)
+    const activo = parsed?.negocioActivo
+    if (!activo) return false
+    const negocios = Array.isArray(parsed.negocios) ? parsed.negocios : []
+    const existe = negocios.some((n: { id: string }) => n.id === activo)
+    if (!existe) {
+      parsed.negocioActivo = null
+      const serialized = JSON.stringify(parsed)
+      sessionStorage.setItem('monastery_session', serialized)
+      localStorage.setItem('monastery_session', serialized)
+      return true
+    }
+    return false
+  } catch { return false }
 }

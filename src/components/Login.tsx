@@ -55,7 +55,7 @@ export default function Login({ onLogin }: LoginProps) {
       const negocios: NegocioInfo[] = Array.isArray(data.negocios) ? data.negocios : []
       onLogin(data.accessToken || '', data.refreshToken || '', data.rol as DiscoRol, data.nombre, data.meseroId || undefined, negocios)
     } catch {
-      setError('No se pudo conectar con el servidor. Intenta nuevamente.')
+      setError('Credenciales inválidas.')
     } finally {
       setLoading(false)
     }

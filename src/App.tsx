@@ -16,8 +16,13 @@ import { useTrabajadores } from './hooks/useTrabajadores'
 import { useJornadas } from './hooks/useJornadas'
 import { useInventarios } from './hooks/useInventarios'
 import { useComparativos } from './hooks/useComparativos'
+import { useSuperNotifications, type SuperNotificacion } from './hooks/useSuperNotifications'
+import NotificationBell from './components/NotificationBell'
 import { seedDatabase } from './lib/seedData'
+import { limpiarNegocioGhostSiNoExiste } from './lib/config'
 import type { DiscoRol, NegocioInfo, View } from './types'
+
+limpiarNegocioGhostSiNoExiste()
 
 interface SessionData {
   accessToken: string
@@ -55,6 +60,8 @@ function saveSession(data: SessionData) {
 function removeSession() {
   sessionStorage.removeItem('monastery_session')
   localStorage.removeItem('monastery_session')
+  sessionStorage.removeItem('monastery_super_notifs')
+  sessionStorage.removeItem('monastery_super_target_view')
 }
 
 const _PH = '6dba77308243555a9aa265b68f884ed5e51a46beb48d07fdf5fdba47f20e728a'
@@ -75,8 +82,15 @@ export default function App() {
     if (!initialSession) return 'login'
     if (initialSession.rol === 'MESERO') return 'pedidos'
     if (initialSession.rol === 'SUPER') {
-    
       if (initialSession.negocioActivo) {
+        try {
+          const target = sessionStorage.getItem('monastery_super_target_view')
+          const validas: View[] = ['liquidacion', 'inventario', 'productos', 'configuracion', 'billar']
+          if (target && (validas as string[]).includes(target)) {
+            sessionStorage.removeItem('monastery_super_target_view')
+            return target as View
+          }
+        } catch { /* noop */ }
         return loadPremium() ? 'dashboard' : 'liquidacion'
       }
       return 'consolidado'
@@ -85,7 +99,6 @@ export default function App() {
   })
   const [rol, setRol] = useState<DiscoRol | null>(() => initialSession?.rol ?? null)
   const [nombre, setNombre] = useState(() => initialSession?.nombre ?? '')
-  const [reloj, setReloj] = useState('')
   const [accessToken, setAccessToken] = useState(() => initialSession?.accessToken ?? '')
   const [meseroId, setMeseroId] = useState(() => initialSession?.meseroId ?? '')
   const [negocios, setNegocios] = useState<NegocioInfo[]>(() => initialSession?.negocios ?? [])
@@ -109,13 +122,6 @@ export default function App() {
       setTimeout(() => splash.remove(), 500)
     }
   }, [seeded])
-
-  useEffect(() => {
-    const tick = () => setReloj(new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [])
 
   const clearSession = useCallback(() => {
     removeSession()
@@ -164,6 +170,35 @@ export default function App() {
 
   const navigate = (v: View) => { setView(v); setMobileMenu(false) }
 
+  const abrirNotificacion = useCallback((n: SuperNotificacion) => {
+    const session = loadSession()
+    if (!session) return
+    const yaEsta = session.negocios.some(neg => neg.id === n.negocioId)
+    const negociosNueva = yaEsta
+      ? session.negocios
+      : [...session.negocios, {
+          id: n.negocioId,
+          nombre: n.negocioNombre,
+          slug: n.negocioId,
+          colorPrimario: n.negocioColor,
+        } as NegocioInfo]
+    saveSession({ ...session, negocioActivo: n.negocioId, negocios: negociosNueva })
+    try {
+      const targetByModulo: Record<string, View> = {
+        LIQUIDACION: 'liquidacion',
+        INVENTARIO: 'inventario',
+        PRODUCTO: 'productos',
+        MESERO: 'configuracion',
+        PROMOCION: 'configuracion',
+        MESA_BILLAR: 'billar',
+      }
+      const target = targetByModulo[n.modulo] ?? 'liquidacion'
+      sessionStorage.setItem('monastery_super_target_view', target)
+    } catch { /* noop */ }
+    window.location.reload()
+  }, [])
+  const superNotifs = useSuperNotifications(rol === 'SUPER', abrirNotificacion)
+
   if (!seeded) return <div className="flex items-center justify-center h-screen bg-[#0A0A0A]"><p className="text-white/30 text-sm">Cargando...</p></div>
   if (view === 'login') return <Login onLogin={handleLogin} />
 
@@ -173,8 +208,8 @@ export default function App() {
   const isSuperDrilled = isSuper && !!negocioActivo
   const isSuperConsolidado = isSuper && !negocioActivo
   const canAdminViews = isAdmin || isSuperDrilled
+  const isReadOnly = isSuper
   const rolLabel = isAdmin ? 'Administrador' : isMesero ? 'Mesero' : isSuper ? 'Super' : 'Dueno'
-  // Negocio activo (para mostrar en header) — admin tiene 1, super drilled tiene el activo, super consolidado no tiene
   const negocioActivoInfo = negocioActivo ? negocios.find(n => n.id === negocioActivo) : null
   const searchParams = new URLSearchParams(window.location.search)
   const pedidosMode = searchParams.get('mode') === 'pedidos'
@@ -187,7 +222,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
             <span className="text-sm font-semibold text-white/80">Monastery Club</span>
-            <span className="text-[10px] text-white/20 font-mono">{reloj}</span>
+            <span className="text-[10px] text-white/20 font-mono"><Reloj /></span>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
@@ -212,7 +247,7 @@ export default function App() {
             <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
             <span className="text-sm font-semibold text-white/80">Monastery Club</span>
             <span className="text-[10px] text-[#4ECDC4]/60 font-medium ml-1">Billar</span>
-            <span className="text-[10px] text-white/20 font-mono">{reloj}</span>
+            <span className="text-[10px] text-white/20 font-mono"><Reloj /></span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs text-white/30">{nombre}</span>
@@ -233,7 +268,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <img src="/assets/M04.png" alt="M" className="h-8 object-contain" />
             <span className="text-sm font-semibold text-white/80">Monastery Club</span>
-            <span className="text-[10px] text-white/20 font-mono">{reloj}</span>
+            <span className="text-[10px] text-white/20 font-mono"><Reloj /></span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs text-white/30">{nombre}</span>
@@ -265,7 +300,18 @@ export default function App() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] text-white/25 font-mono">{reloj}</span>
+          <span className="text-[10px] text-white/25 font-mono"><Reloj /></span>
+          {isSuper && (
+            <NotificationBell
+              notificaciones={superNotifs.notificaciones}
+              noLeidas={superNotifs.noLeidas}
+              conectado={superNotifs.conectado}
+              onMarcarLeidas={superNotifs.marcarTodasLeidas}
+              onMarcarLeida={superNotifs.marcarLeida}
+              onLimpiar={superNotifs.limpiar}
+              onAbrir={abrirNotificacion}
+            />
+          )}
           {/* Hamburger ELIMINADO: el menú se accede via "Mas" del bottom nav (igual para todos los roles) */}
           {!isAdmin && !isSuper && (
             <button onClick={handleLogout} className="text-[10px] text-[#FF5050] hover:text-[#FF5050]/80 transition-colors">
@@ -351,7 +397,7 @@ export default function App() {
         <div className="mb-6 flex flex-col items-center">
           <img src="/assets/M04.png" alt="Monastery Club" className="h-24 object-contain mb-1" />
           <p className="text-xs text-white/30">MVP</p>
-          <p className="text-xs text-white/20 mt-1 font-mono">{reloj}</p>
+          <p className="text-xs text-white/20 mt-1 font-mono"><Reloj /></p>
         </div>
         {isSuper && (
           <NegocioCard
@@ -441,6 +487,28 @@ export default function App() {
       )}
 
 <main className="flex-1 p-4 lg:p-6 pt-16 lg:pt-6 pb-20 lg:pb-6 overflow-auto">
+        {isSuper && (
+          <div className="mb-4 flex items-center gap-3">
+            {isSuperDrilled && (
+              <div className="px-3 py-2 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center gap-2 max-w-md min-w-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M12 1l3 6 6 .9-4.5 4.4 1 6.2L12 15.8 6.5 18.5l1-6.2L3 7.9 9 7z"/></svg>
+                <span className="text-[11px] text-[#D4AF37]/90 truncate">Vista Super — solo lectura. No puedes modificar datos del negocio.</span>
+              </div>
+            )}
+            <div className="flex-1" />
+            <div className="hidden lg:block shrink-0 mr-12">
+              <NotificationBell
+                notificaciones={superNotifs.notificaciones}
+                noLeidas={superNotifs.noLeidas}
+                conectado={superNotifs.conectado}
+                onMarcarLeidas={superNotifs.marcarTodasLeidas}
+                onMarcarLeida={superNotifs.marcarLeida}
+                onLimpiar={superNotifs.limpiar}
+                onAbrir={abrirNotificacion}
+              />
+            </div>
+          </div>
+        )}
         {premiumEnabled && view === 'dashboard' && <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}><Dashboard jornadas={jornadas} trabajadores={trabajadores} /></Suspense>}
         {canAdminViews && view === 'liquidacion' && (
           <Liquidacion
@@ -494,12 +562,21 @@ export default function App() {
         )}
         {isSuperConsolidado && view === 'consolidado' && (
           <Suspense fallback={<div className="flex flex-col items-center justify-center h-64"><img src="/assets/M02.png" alt="" className="w-12 h-12 animate-pulse" /><p className="text-white/30 text-xs mt-3 tracking-widest uppercase">Cargando...</p></div>}>
-            <DashboardConsolidado onSelectNegocio={drillIntoNegocio} />
+            <DashboardConsolidado onSelectNegocio={drillIntoNegocio} negocios={negocios} />
           </Suspense>
         )}
       </main>
     </div>
   )
+}
+
+function Reloj() {
+  const [hora, setHora] = useState(() => new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+  useEffect(() => {
+    const id = setInterval(() => setHora(new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return <>{hora}</>
 }
 
 function NegocioSelector({ negocios, negocioActivo, onChange }: { negocios: NegocioInfo[]; negocioActivo: string | null; onChange: (id: string) => void }) {

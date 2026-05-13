@@ -31,6 +31,29 @@ export function playNotificationSound() {
   } catch { /* AudioContext no disponible */ }
 }
 
+export function playSuperNotificationSound() {
+  try {
+    const ctx = getCtx()
+    const now = ctx.currentTime
+
+    const tone = (freq: number, start: number, dur: number, vol: number) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      gain.gain.setValueAtTime(vol, start)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + dur)
+      osc.start(start)
+      osc.stop(start + dur)
+    }
+
+    tone(880, now, 0.25, 0.06)
+    tone(1100, now + 0.18, 0.3, 0.05)
+  } catch { /* AudioContext no disponible */ }
+}
+
 export function playDespachadoSound() {
   try {
     const ctx = getCtx()

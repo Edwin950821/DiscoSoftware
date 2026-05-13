@@ -13,7 +13,9 @@ import ImportarLiquidacionExcel from './ImportarLiquidacionExcel'
 import ImportarComparativoExcel from './ImportarComparativoExcel'
 import { DateRangeFilter } from './ui/DateRangeFilter'
 import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
+import { useIsReadOnly } from '../hooks/useIsReadOnly'
 import { API_PEDIDOS, apiFetch } from '../lib/config'
+import { getInventarioDraft, setInventarioDraft, clearInventarioDraft } from '../lib/inventarioDraft'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
 
@@ -274,10 +276,10 @@ export default function Liquidacion({
   const [modalExito, setModalExito] = useState<string | null>(null)
 
 
-  const [modoInv, setModoInv] = useState<'lista' | 'nuevo' | 'editar'>('lista')
-  const [editInvId, setEditInvId] = useState<string | null>(null)
-  const [fechaInv, setFechaInv] = useState(new Date().toISOString().split('T')[0])
-  const [lineasInv, _setLineasInv] = useState<LineaInventario[]>([])
+  const [modoInv, setModoInv] = useState<'lista' | 'nuevo' | 'editar'>(() => getInventarioDraft()?.modoInv ?? 'lista')
+  const [editInvId, setEditInvId] = useState<string | null>(() => getInventarioDraft()?.editInvId ?? null)
+  const [fechaInv, setFechaInv] = useState(() => getInventarioDraft()?.fechaInv ?? new Date().toISOString().split('T')[0])
+  const [lineasInv, _setLineasInv] = useState<LineaInventario[]>(() => getInventarioDraft()?.lineasInv ?? [])
   const invHistoryRef = useRef<LineaInventario[][]>([])
   const setLineasInv: typeof _setLineasInv = (val) => {
     _setLineasInv(prev => {
@@ -326,6 +328,11 @@ export default function Liquidacion({
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [tab, modoLiq, modoInv, undoLiq, undoInv])
+
+  useEffect(() => {
+    if (modoInv === 'lista') clearInventarioDraft()
+    else setInventarioDraft({ modoInv, editInvId, fechaInv, lineasInv })
+  }, [modoInv, editInvId, fechaInv, lineasInv])
 
   const fechaLiqDuplicada = jornadas.some(j => j.fecha === fechaLiq && j.id !== editJornadaId)
 
@@ -578,7 +585,9 @@ export default function Liquidacion({
         setModalExito('Inventario guardado correctamente')
       }
       setGuardandoI(false)
-      setTimeout(() => { setModalExito(null); setModoInv('lista'); setEditInvId(null) }, 2000)
+      setModoInv('lista')
+      setEditInvId(null)
+      setTimeout(() => { setModalExito(null) }, 2000)
     } catch { setGuardandoI(false); alert('Error al guardar inventario.') }
   }
 
@@ -680,7 +689,16 @@ export default function Liquidacion({
         )
       )}
 
-      {tab === 'semana' && <LiquidacionSemana jornadas={jornadas} inventarios={inventarios} />}
+      {tab === 'semana' && (
+        <LiquidacionSemana
+          jornadas={jornadas}
+          inventarios={inventarios}
+          productos={productos}
+          trabajadores={trabajadores}
+          guardarJornada={guardarJornada}
+          agregarTrabajador={agregarTrabajador}
+        />
+      )}
 
       {tab === 'inventario' && (
         modoInv === 'nuevo' || modoInv === 'editar' ? (
@@ -737,11 +755,11 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
   guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
 }) {
+  const isReadOnly = useIsReadOnly()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [showImport, setShowImport] = useState(false)
-  const productosLoaded = productos.length > 0 && trabajadores.length > 0
 
   const filtradas = jornadas.filter(j => {
     if (desde && j.fecha < desde) return false
@@ -771,12 +789,14 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <DateRangeFilter desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta}
           total={jornadas.length} filtrados={filtradas.length} />
-        <div className="flex gap-2 w-full sm:w-auto shrink-0">
-          <Btn variant="ghost" onClick={() => setShowImport(true)} disabled={!productosLoaded} className="flex-1 sm:flex-initial">
-            Importar Excel
-          </Btn>
-          <Btn onClick={onNueva} className="flex-1 sm:flex-initial">+ Nueva Liquidacion</Btn>
-        </div>
+        {!isReadOnly && (
+          <div className="flex gap-2 w-full sm:w-auto shrink-0">
+            <Btn variant="ghost" onClick={() => setShowImport(true)} className="flex-1 sm:flex-initial">
+              Importar Excel
+            </Btn>
+            <Btn onClick={onNueva} className="flex-1 sm:flex-initial">+ Nueva Liquidacion</Btn>
+          </div>
+        )}
       </div>
       {showImport && (
         <ImportarLiquidacionExcel
@@ -887,13 +907,15 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                     </div>
 
                     <div className="flex justify-end gap-2 mt-3">
-                      <Btn size="sm" variant="ghost" onClick={() => onEditar(j)} className="flex items-center gap-1.5">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
-                      </Btn>
+                      {!isReadOnly && (
+                        <Btn size="sm" variant="ghost" onClick={() => onEditar(j)} className="flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
+                        </Btn>
+                      )}
                       <Btn size="sm" variant="ghost" onClick={() => printJornada(j)} className="flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Imprimir
                       </Btn>
-                      {confirmDelete === j.id ? (
+                      {!isReadOnly && (confirmDelete === j.id ? (
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-[#FF5050]">Seguro?</span>
                           <Btn size="sm" variant="danger" onClick={() => handleEliminar(j.id)}>Si, eliminar</Btn>
@@ -901,7 +923,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                         </div>
                       ) : (
                         <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(j.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
-                      )}
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1562,14 +1584,13 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
   handleEliminar: (id: string) => void; onNuevo: () => void; onEditar: (inv: InventarioType) => void; productosLoaded: boolean
   productos: Producto[]; guardarInventario: (inv: InventarioInput) => Promise<void>
 }) {
+  const isReadOnly = useIsReadOnly()
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [showImport, setShowImport] = useState(false)
   const filtrados = inventarios.filter(inv => { if (desde && inv.fecha < desde) return false; if (hasta && inv.fecha > hasta) return false; return true })
 
   const handleImport = async (toImport: InventarioInput[]) => {
-    // Importa secuencialmente. Captura errores por inventario para reportar
-    // cuáles se guardaron y cuáles fallaron sin abortar todo.
     const fallidos: { fecha: string; error: string }[] = []
     let exitosos = 0
     for (const inv of toImport) {
@@ -1590,12 +1611,14 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <DateRangeFilter desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} total={inventarios.length} filtrados={filtrados.length} />
-        <div className="flex gap-2 w-full sm:w-auto shrink-0">
-          <Btn variant="ghost" onClick={() => setShowImport(true)} disabled={!productosLoaded} className="flex-1 sm:flex-initial">
-            Importar Excel
-          </Btn>
-          <Btn onClick={onNuevo} disabled={!productosLoaded} className="flex-1 sm:flex-initial">{productosLoaded ? '+ Nuevo' : 'Cargando...'}</Btn>
-        </div>
+        {!isReadOnly && (
+          <div className="flex gap-2 w-full sm:w-auto shrink-0">
+            <Btn variant="ghost" onClick={() => setShowImport(true)} className="flex-1 sm:flex-initial">
+              Importar Excel
+            </Btn>
+            <Btn onClick={onNuevo} disabled={!productosLoaded} className="flex-1 sm:flex-initial">{productosLoaded ? '+ Nuevo' : 'Cargando...'}</Btn>
+          </div>
+        )}
       </div>
       {showImport && (
         <ImportarInventarioExcel
@@ -1662,20 +1685,22 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
                         </tfoot>
                       </table>
                     </div>
-                    <div className="flex justify-end gap-2 mt-3">
-                      <Btn size="sm" variant="ghost" onClick={() => onEditar(inv)} className="flex items-center gap-1.5">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
-                      </Btn>
-                      {confirmDelete === inv.id ? (
-                        <div className="flex gap-2 items-center">
-                          <span className="text-xs text-[#FF5050]">Eliminar?</span>
-                          <Btn size="sm" variant="danger" onClick={() => handleEliminar(inv.id)}>Si</Btn>
-                          <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
-                        </div>
-                      ) : (
-                        <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(inv.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
-                      )}
-                    </div>
+                    {!isReadOnly && (
+                      <div className="flex justify-end gap-2 mt-3">
+                        <Btn size="sm" variant="ghost" onClick={() => onEditar(inv)} className="flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
+                        </Btn>
+                        {confirmDelete === inv.id ? (
+                          <div className="flex gap-2 items-center">
+                            <span className="text-xs text-[#FF5050]">Eliminar?</span>
+                            <Btn size="sm" variant="danger" onClick={() => handleEliminar(inv.id)}>Si</Btn>
+                            <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
+                          </div>
+                        ) : (
+                          <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(inv.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </Card>
@@ -1762,6 +1787,7 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
   handleEliminar: (id: string) => void; onNuevo: () => void; productosLoaded: boolean
   productos: Producto[]; guardarComparativo: (comp: ComparativoInput) => Promise<void>
 }) {
+  const isReadOnly = useIsReadOnly()
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [showImport, setShowImport] = useState(false)
@@ -1788,12 +1814,14 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <DateRangeFilter desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} total={comparativos.length} filtrados={filtrados.length} />
-        <div className="flex gap-2 w-full sm:w-auto shrink-0">
-          <Btn variant="ghost" onClick={() => setShowImport(true)} disabled={!productosLoaded} className="flex-1 sm:flex-initial">
-            Importar Excel
-          </Btn>
-          <Btn onClick={onNuevo} disabled={!productosLoaded} className="flex-1 sm:flex-initial">{productosLoaded ? '+ Nuevo Comparativo' : 'Cargando...'}</Btn>
-        </div>
+        {!isReadOnly && (
+          <div className="flex gap-2 w-full sm:w-auto shrink-0">
+            <Btn variant="ghost" onClick={() => setShowImport(true)} className="flex-1 sm:flex-initial">
+              Importar Excel
+            </Btn>
+            <Btn onClick={onNuevo} disabled={!productosLoaded} className="flex-1 sm:flex-initial">{productosLoaded ? '+ Nuevo Comparativo' : 'Cargando...'}</Btn>
+          </div>
+        )}
       </div>
       {showImport && (
         <ImportarComparativoExcel
@@ -1865,17 +1893,19 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
                         </tfoot>
                       </table>
                     </div>
-                    <div className="flex justify-end mt-3">
-                      {confirmDelete === c.id ? (
-                        <div className="flex gap-2 items-center">
-                          <span className="text-xs text-[#FF5050]">Eliminar?</span>
-                          <Btn size="sm" variant="danger" onClick={() => handleEliminar(c.id)}>Si</Btn>
-                          <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
-                        </div>
-                      ) : (
-                        <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(c.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
-                      )}
-                    </div>
+                    {!isReadOnly && (
+                      <div className="flex justify-end mt-3">
+                        {confirmDelete === c.id ? (
+                          <div className="flex gap-2 items-center">
+                            <span className="text-xs text-[#FF5050]">Eliminar?</span>
+                            <Btn size="sm" variant="danger" onClick={() => handleEliminar(c.id)}>Si</Btn>
+                            <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
+                          </div>
+                        ) : (
+                          <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(c.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </Card>
@@ -1916,8 +1946,36 @@ const FILAS_SEM: { key: string; label: string; color: string; bold?: boolean; is
   { key: 'saldo', label: 'Saldo a Favor o en contra', color: '', isSaldo: true },
 ]
 
-function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: InventarioType[] }) {
-  // Default: rango que cubre TODAS las jornadas existentes (para que se vea algo al abrir el tab).
+function LiquidacionSemana({
+  jornadas, productos, trabajadores, guardarJornada, agregarTrabajador,
+}: {
+  jornadas: Jornada[]
+  inventarios: InventarioType[]
+  productos: Producto[]
+  trabajadores: Trabajador[]
+  guardarJornada: (j: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
+  agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
+}) {
+  const isReadOnly = useIsReadOnly()
+  const [showImport, setShowImport] = useState(false)
+
+  const handleImport = async (toImport: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }[]) => {
+    const fallidos: { fecha: string; error: string }[] = []
+    let exitosos = 0
+    for (const j of toImport) {
+      try {
+        await guardarJornada(j)
+        exitosos++
+      } catch (e: any) {
+        fallidos.push({ fecha: j.fecha, error: e?.message ?? 'Error desconocido' })
+      }
+    }
+    if (fallidos.length > 0) {
+      const detalle = fallidos.map(f => `${f.fecha}: ${f.error}`).join('\n')
+      throw new Error(`${exitosos}/${toImport.length} importadas. Fallaron:\n${detalle}`)
+    }
+  }
+
   const [desde, setDesde] = useState(() => {
     if (jornadas.length === 0) return ''
     return jornadas.reduce((min, j) => j.fecha < min ? j.fecha : min, jornadas[0].fecha)
@@ -1927,9 +1985,22 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
     return jornadas.reduce((max, j) => j.fecha > max ? j.fecha : max, jornadas[0].fecha)
   })
   const [semanaActiva, setSemanaActiva] = useState<number | null>(null)
-  const [jornadaActivaId, setJornadaActivaId] = useState<string | null>(null)
+  const [jornadasSeleccionadas, setJornadasSeleccionadas] = useState<string[]>([])
 
-  // Si las jornadas cargan async después del mount y los filtros estaban vacíos, los autocompleta.
+  const toggleJornadaSeleccionada = (id: string) => {
+    setJornadasSeleccionadas(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  const toggleSemana = (gi: number, ids: string[]) => {
+    const todasIncluidas = ids.length > 0 && ids.every(id => jornadasSeleccionadas.includes(id))
+    if (todasIncluidas) {
+      setJornadasSeleccionadas(prev => prev.filter(id => !ids.includes(id)))
+      if (semanaActiva === gi) setSemanaActiva(null)
+    } else {
+      setJornadasSeleccionadas(prev => Array.from(new Set([...prev, ...ids])))
+      setSemanaActiva(gi)
+    }
+  }
+
   useEffect(() => {
     if (jornadas.length === 0) return
     if (!desde && !hasta) {
@@ -1937,7 +2008,7 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
       setDesde(fechas.reduce((min, f) => f < min ? f : min))
       setHasta(fechas.reduce((max, f) => f > max ? f : max))
     }
-  }, [jornadas]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [jornadas]) 
 
   const jornadasFiltradas = useMemo(() => {
     if (!desde || !hasta) return []
@@ -1967,12 +2038,15 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
   }, [jornadas])
 
   const jornadasVisibles = useMemo(() => {
-    if (jornadaActivaId) return jornadasFiltradas.filter(j => j.id === jornadaActivaId)
+    if (jornadasSeleccionadas.length > 0) {
+      const set = new Set(jornadasSeleccionadas)
+      return jornadasFiltradas.filter(j => set.has(j.id))
+    }
     if (semanaActiva === null || !fechasDisponibles[semanaActiva]) return jornadasFiltradas
     const grupo = fechasDisponibles[semanaActiva]
     const ids = new Set(grupo.map(j => j.id))
     return jornadasFiltradas.filter(j => ids.has(j.id))
-  }, [jornadasFiltradas, semanaActiva, jornadaActivaId, fechasDisponibles])
+  }, [jornadasFiltradas, semanaActiva, jornadasSeleccionadas, fechasDisponibles])
 
   const d = useMemo(() => jornadasVisibles.length > 0 ? calcSemanaData(jornadasVisibles) : null, [jornadasVisibles])
 
@@ -1980,7 +2054,25 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
 
   return (
     <div>
-      <h3 className="text-sm font-bold text-white/60 uppercase tracking-wider mb-4">Liquidacion Semanal</h3>
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <h3 className="text-sm font-bold text-white/60 uppercase tracking-wider">Liquidacion Semanal</h3>
+        {!isReadOnly && (
+          <Btn variant="ghost" onClick={() => setShowImport(true)}>
+            Importar Excel
+          </Btn>
+        )}
+      </div>
+
+      {showImport && (
+        <ImportarLiquidacionExcel
+          productos={productos}
+          trabajadores={trabajadores}
+          jornadasExistentes={jornadas}
+          agregarTrabajador={agregarTrabajador}
+          onImport={handleImport}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       <div className="flex items-end gap-4 mb-4">
         <div className="flex flex-col gap-1">
@@ -2000,28 +2092,51 @@ function LiquidacionSemana({ jornadas }: { jornadas: Jornada[]; inventarios: Inv
 
       {desde && hasta && fechasDisponibles.filter(g => g[0].fecha <= hasta && g[g.length - 1].fecha >= desde).length > 0 && (
         <div className="mb-6">
-          <p className="text-[10px] text-white/25 uppercase tracking-wider mb-2">Sesiones en el rango seleccionado</p>
+          <div className="flex items-center justify-between mb-2 gap-3 flex-wrap">
+            <p className="text-[10px] text-white/25 uppercase tracking-wider">
+              Sesiones en el rango seleccionado
+              {jornadasSeleccionadas.length > 0 && (
+                <span className="ml-2 text-[#CDA52F]/80 normal-case">· {jornadasSeleccionadas.length} día{jornadasSeleccionadas.length === 1 ? '' : 's'} seleccionado{jornadasSeleccionadas.length === 1 ? '' : 's'}</span>
+              )}
+            </p>
+            {(jornadasSeleccionadas.length > 0 || semanaActiva !== null) && (
+              <button
+                onClick={() => { setJornadasSeleccionadas([]); setSemanaActiva(null) }}
+                className="flex items-center gap-1.5 text-[11px] text-[#CDA52F] hover:text-[#CDA52F]/70 transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+                Ver todo el rango
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             {fechasDisponibles.map((grupo, gi) => {
               const f0 = grupo[0].fecha
               const fN = grupo[grupo.length - 1].fecha
               if (!(f0 <= hasta && fN >= desde)) return null
+              const idsGrupo = grupo.map(j => j.id)
+              const todasSeleccionadas = idsGrupo.every(id => jornadasSeleccionadas.includes(id))
+              const algunaSeleccionada = idsGrupo.some(id => jornadasSeleccionadas.includes(id))
               const isActive = semanaActiva === gi
+              const semanaResaltada = (algunaSeleccionada && jornadasSeleccionadas.length > 0) || (isActive && jornadasSeleccionadas.length === 0)
               return (
                 <div key={gi} className="flex flex-col gap-1.5">
-                  <button onClick={() => { setJornadaActivaId(null); setSemanaActiva(isActive ? null : gi) }}
-                    className={`text-[10px] font-bold tracking-wider transition-all ${isActive && !jornadaActivaId ? 'text-[#CDA52F]' : 'text-white/25 hover:text-[#CDA52F]/60'}`}>
-                    S{gi + 1}
+                  <button onClick={() => toggleSemana(gi, idsGrupo)}
+                    className={`text-[10px] font-bold tracking-wider transition-all ${todasSeleccionadas ? 'text-[#CDA52F]' : 'text-white/25 hover:text-[#CDA52F]/60'}`}>
+                    S{gi + 1}{todasSeleccionadas ? ' ✓' : ''}
                   </button>
                   <div className="flex items-center rounded-xl overflow-hidden border border-[#CDA52F]/25"
-                    style={{ boxShadow: isActive ? '0 0 12px rgba(205,165,47,0.12)' : 'none' }}>
+                    style={{ boxShadow: semanaResaltada ? '0 0 12px rgba(205,165,47,0.12)' : 'none' }}>
                     {grupo.map((j, ji) => {
                       const dt = new Date(j.fecha + 'T12:00:00')
-                      const isJornadaActive = jornadaActivaId === j.id
+                      const isJornadaActive = jornadasSeleccionadas.includes(j.id)
                       const isLast = ji === grupo.length - 1
                       return (
-                        <button key={ji} onClick={() => { setSemanaActiva(gi); setJornadaActivaId(isJornadaActive ? null : j.id) }}
-                          className={`px-3.5 py-2 text-center transition-all text-[11px] font-medium ${!isLast ? 'border-r border-[#CDA52F]/15' : ''} ${isJornadaActive ? 'bg-[#CDA52F]/20 text-[#CDA52F]' : isActive && !jornadaActivaId ? 'bg-[#CDA52F]/10 text-[#CDA52F]/80' : 'bg-white/[0.02] text-white/35 hover:bg-[#CDA52F]/10 hover:text-[#CDA52F]/70'}`}>
+                        <button key={ji} onClick={() => toggleJornadaSeleccionada(j.id)}
+                          className={`px-3.5 py-2 text-center transition-all text-[11px] font-medium ${!isLast ? 'border-r border-[#CDA52F]/15' : ''} ${isJornadaActive ? 'bg-[#CDA52F]/20 text-[#CDA52F]' : isActive && jornadasSeleccionadas.length === 0 ? 'bg-[#CDA52F]/10 text-[#CDA52F]/80' : 'bg-white/[0.02] text-white/35 hover:bg-[#CDA52F]/10 hover:text-[#CDA52F]/70'}`}>
                           {diasNombre[dt.getDay()]} {dt.getDate()}
                         </button>
                       )

@@ -274,7 +274,14 @@ export function calcularCuadre(jornada: Omit<Jornada, 'id' | 'creadoEn'>) {
 | Luis | #A8E6CF | LU |
 | Barra | #C3B1E1 | BA |
 
-> "Barra" es el punto de venta principal, no una persona. Se trata igual que un mesero.
+> **"Barra" es un caso especial**: tiene su fila en `disco_meseros` como cualquier mesero, pero representa el punto de venta principal del negocio (mostrador / caja), no una persona. Cada negocio (Monastery Baranoa, Monastery Sabanalarga, Billar Monastery) tiene SU propia Barra.
+>
+> **Identificación:** se reconoce por `LOWER(nombre) = 'barra'` en `disco_meseros`. Convenciones:
+> - En el dashboard del SUPER existe una sección dedicada **"Comparativo de Barras"** que cruza las barras de los 3 negocios — ver [DashboardConsolidado.tsx](src/components/DashboardConsolidado.tsx) y endpoint `/api/disco/super/consolidado` (campo `comparativoBarras`).
+> - En "Top meseros" la Barra aparece junto al resto (suele ser la #1 por volumen, ~60-70% de las ventas del negocio).
+> - Color por convención: `#C3B1E1`, avatar `BA`.
+>
+> **Cálculos especiales (pendiente de definir reglas exactas con el negocio):** por defecto la Barra concentra las ventas en efectivo de caja, absorbe cortesías ("tragos de la casa") y no se liquida como un mesero. Hoy el sistema la trata con las mismas fórmulas que un mesero normal — cuando el negocio confirme reglas finales (ej: cortesías que NO afectan al mesero, efectivo que va directo a caja sin pasar por liquidación), se ajustan los cálculos en `comparativoBarras` del endpoint super.
 
 Cargar con `initFirebase()` en `src/lib/initFirebase.ts` — llamar una sola vez desde `App.tsx` si las colecciones están vacías.
 

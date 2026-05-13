@@ -78,6 +78,8 @@ src/
 │   ├── PedidosMesero.tsx   Vista mesero: toma de pedidos por mesa
 │   ├── Productos.tsx       Catalogo de productos con precios
 │   ├── Configuracion.tsx   Trabajadores, seguridad y modulos
+│   ├── DashboardConsolidado.tsx Dashboard multi-negocio del rol SUPER
+│   ├── NotificationBell.tsx     Campana de notificaciones tiempo real (rol SUPER)
 │   ├── ErrorBoundary.tsx   Captura de errores de React
 │   ├── TerminosCondiciones.tsx  Pagina legal
 │   └── PoliticaPrivacidad.tsx   Pagina legal
@@ -92,7 +94,10 @@ src/
 │   ├── usePedidos.ts       Pedidos en tiempo real con Socket.IO
 │   ├── useVentas.ts        Cuentas por mesa, pagos y descuentos
 │   ├── useJornadaDiaria.ts Resumen del dia: ventas + billar + cierre
-│   └── useBillar.ts        Mesas de billar y partidas via API
+│   ├── useBillar.ts        Mesas de billar y partidas via API
+│   ├── useConsolidado.ts   Dashboard SUPER (acepta filtro tipo / negocio / rango temporal)
+│   ├── useSuperNotifications.ts  Socket.IO para notificaciones SUPER en tiempo real
+│   └── useIsReadOnly.ts    Detecta rol SUPER (modo solo lectura)
 ├── lib/
 │   ├── config.ts           URL del API + fetch wrapper con JWT
 │   ├── db.ts               Base de datos local Dexie (IndexedDB)
@@ -123,6 +128,8 @@ src/
 | **Ventas** | Cuentas por mesa, historial de pedidos, descuentos por promocion y cierre de cuenta |
 | **Promociones** | Reglas tipo "compra X unidades, lleva Y gratis" con descuento automatico |
 | **Configuracion** | CRUD de trabajadores con usuario/contrasena, productos y seguridad |
+| **Dashboard Consolidado (SUPER)** | Vista multi-negocio: KPIs globales filtrables por tipo de negocio, negocio individual y rango temporal (Hoy / 7d / 30d / Este mes / Este año / Todo). Comparativos por negocio, tendencia 30d, sparkline 7d, top productos, top meseros (excluye Barras), Comparativo de Barras dedicado, ranking |
+| **Notificaciones tiempo real (SUPER)** | Campana en header con notificaciones via Socket.IO cuando un negocio crea o elimina una **liquidación** o un **inventario**. Click navega al módulo recién actualizado del negocio |
 
 ## Vistas y acceso
 
@@ -138,12 +145,19 @@ src/
 | Pedidos Mesero (toma de pedidos) | Solo Mesero |
 | Productos | Solo Admin |
 | Configuracion | Solo Admin |
+| Dashboard Consolidado | Solo SUPER |
+| Drill-in a un negocio (vista admin solo lectura) | Solo SUPER |
 
 ## Roles
 
 - **ADMINISTRADOR**: Acceso completo. Ingresa liquidaciones, gestiona productos, trabajadores, inventario, mesas y pedidos.
 - **DUENO**: Solo ve el Dashboard con KPIs y graficos.
 - **MESERO**: Toma pedidos desde su dispositivo movil, asignado a mesas por el admin.
+- **SUPER**: Vista consolidada multi-negocio (2 discotecas + 1 billar). Puede entrar a cualquier negocio en **modo solo lectura** (drill-in) — el filtro `SuperReadOnlyFilter` del backend rechaza cualquier mutación. Recibe notificaciones en tiempo real de liquidaciones e inventarios.
+
+### Caso especial: mesero "Barra"
+
+Por convención, cada negocio tiene un mesero llamado `Barra` que representa el punto de venta principal (mostrador / caja), no una persona. Se identifica por `LOWER(nombre) = 'barra'` en la base. El dashboard SUPER tiene una sección dedicada **"Comparativo de Barras"** que cruza las barras de los 3 negocios; el "Top 5 meseros" las **excluye** para que no copen el ranking.
 
 ## Tema
 

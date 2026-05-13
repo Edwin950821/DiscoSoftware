@@ -6,6 +6,7 @@ import { Input } from './ui/Input'
 import { db, hashPassword } from '../lib/db'
 import { usePromociones } from '../hooks/usePromociones'
 import { useProductos } from '../hooks/useProductos'
+import { useIsReadOnly } from '../hooks/useIsReadOnly'
 
 const COLORES_TRABAJADOR = ['#CDA52F', '#4ECDC4', '#FFE66D', '#A8E6CF', '#C3B1E1', '#FF8FA3', '#98D8C8', '#FFB347']
 
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export default function Configuracion({ accessToken, trabajadores, agregarTrabajador, actualizarTrabajador, eliminarTrabajador, premiumEnabled, onTogglePremium }: Props) {
+  const isReadOnly = useIsReadOnly()
   const [tab, setTab] = useState<'trabajadores' | 'promociones' | 'seguridad' | 'modulos'>('trabajadores')
   const { promociones, crear: crearPromo, actualizar: actualizarPromo, eliminar: eliminarPromo, toggleActiva } = usePromociones()
   const { productos } = useProductos()
@@ -195,6 +197,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
 
       {tab === 'trabajadores' && (
         <div className="max-w-lg">
+          {!isReadOnly && (
           <Card className="mb-4">
             <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Agregar Trabajador</p>
             <div className="space-y-3">
@@ -223,6 +226,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
               </Btn>
             </div>
           </Card>
+          )}
 
           <div className="space-y-2">
             {trabajadores.length === 0 ? (
@@ -265,7 +269,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
                           )}
                         </div>
                       </div>
-                      {confirmDelete === t.id ? (
+                      {isReadOnly ? null : confirmDelete === t.id ? (
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-[#FF5050]">Eliminar?</span>
                           <Btn size="sm" variant="danger" onClick={() => handleEliminar(t.id)}>Si</Btn>

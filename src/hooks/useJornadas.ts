@@ -79,8 +79,29 @@ export function useJornadas() {
   }
 
   const actualizar = async (id: string, input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => {
-    await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, { method: 'DELETE' })
-    await guardar(input)
+    const meseros = input.liquidaciones.map(liq => {
+      const c = calcularLiquidacion(liq)
+      const pagos: Record<string, number> = {}
+      const efEntregado = liq.efectivoEntregado ?? c.efectivo
+      if (efEntregado > 0) pagos['Efectivo'] = efEntregado
+      if (c.totalDatafono > 0) pagos['Datafono'] = c.totalDatafono
+      if (c.totalQR > 0) pagos['QR'] = c.totalQR
+      if (c.totalNequi > 0) pagos['Nequi'] = c.totalNequi
+      if (c.totalVales > 0) pagos['Vales'] = c.totalVales
+      return {
+        meseroId: liq.trabajadorId, nombre: liq.nombre, color: liq.color, avatar: liq.avatar,
+        totalMesero: c.totalVenta, cortesias: c.totalCortesias, gastos: c.totalGastos, pagos,
+        lineas: liq.lineas?.filter(l => l.cantidad > 0) || [],
+        transaccionesDetalle: liq.transacciones?.filter(t => t.monto > 0) || [],
+        valesDetalle: liq.vales?.filter(v => v.monto > 0) || [],
+        cortesiasDetalle: liq.cortesias?.filter(ct => ct.monto > 0) || [],
+        gastosDetalle: liq.gastos?.filter(g => g.monto > 0) || [],
+      }
+    })
+    await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, {
+      method: 'PUT', body: JSON.stringify({ sesion: input.sesion, fecha: input.fecha, meseros }),
+    })
+    await fetchAll()
   }
 
   const eliminar = async (id: string) => {

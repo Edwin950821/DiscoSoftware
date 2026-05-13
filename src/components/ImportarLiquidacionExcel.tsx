@@ -370,9 +370,13 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
 
   useEffect(() => {
     if (!needsReparse || !fileBufRef.current) return
+    const todosPresentes = trabajadoresCreados.every(nombre =>
+      trabajadores.some(t => normalizar(t.nombre) === normalizar(nombre))
+    )
+    if (!todosPresentes) return
     reparsear(fileBufRef.current)
     setNeedsReparse(false)
-  }, [needsReparse, reparsear])
+  }, [needsReparse, reparsear, trabajadores, trabajadoresCreados])
 
   const handleFile = async (file: File) => {
     setParsing(true)

@@ -72,7 +72,6 @@ const sem1 = [
   ['Amper (obsequio)',6,6]
 ];
 
-// Semana 2: 2026-03-14
 const sem2 = [
   ['Aguila Negra',292,292],['Aguila Light',32,32],['Costeñita',181,181],['Budweiser',0,0],
   ['Coronita',234,234],['Club Colombia',25,25],['Heinekeen',15,15],['Stella Artois',0,0],
@@ -116,8 +115,8 @@ function post(body) {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => {
-        console.log('Status:', res.statusCode);
-        if (res.statusCode !== 201) console.log('Response:', d.substring(0, 300));
+       
+        if (res.statusCode !== 201);
         resolve();
       });
     });
@@ -128,9 +127,8 @@ function post(body) {
 }
 
 (async () => {
-  console.log('Creando comparativo semana 1 (2026-03-07)...');
+ 
   await post(buildBody('2026-03-07', sem1));
-  console.log('Creando comparativo semana 2 (2026-03-14)...');
   await post(buildBody('2026-03-14', sem2));
-  console.log('Listo!');
+  
 })();

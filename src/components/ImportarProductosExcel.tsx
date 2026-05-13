@@ -14,8 +14,8 @@ interface FilaParseada {
 }
 
 const SHEET_NAME = 'Tabla precios'
-const COL_NOMBRE = 0   // col A
-const COL_PRECIO = 5   // col F (precio venta)
+const COL_NOMBRE = 0   
+const COL_PRECIO = 5   
 
 const STATUS_CFG: Record<FilaStatus, { icon: string; color: string; label: string }> = {
   'nuevo':           { icon: '+', color: 'text-[#4ECDC4]', label: 'Nuevo Producto Encontrado(crear)' },
@@ -37,7 +37,6 @@ function parseProductosSheet(buf: ArrayBuffer, productos: Producto[]): ParseResu
     return { filas: [], error: `No se encontró la hoja "${SHEET_NAME}" en el archivo` }
   }
 
-  // Normalización idéntica al importador de inventario para consistencia
   const normalizar = (s: string): string => s
     .toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -66,18 +65,14 @@ function parseProductosSheet(buf: ArrayBuffer, productos: Producto[]): ParseResu
   const filas: FilaParseada[] = []
   const nombresVistos = new Map<string, string>()
 
-  // Datos comienzan en row 2 (index 1) — row 1 es header
   for (let r = 1; r <= 200; r++) {
     if (!hasValue(r, COL_NOMBRE)) {
-      // Si la siguiente también está vacía, fin de tabla
       if (!hasValue(r + 1, COL_NOMBRE)) break
       continue
     }
     const nombre = String(sheet[XLSX.utils.encode_cell({ r, c: COL_NOMBRE })]!.v).trim()
     if (!nombre) continue
     const precio = num(r, COL_PRECIO)
-
-    // Detección 1: nombre duplicado en Excel
     const nombreNorm = normalizar(nombre)
     if (nombresVistos.has(nombreNorm)) {
       filas.push({
@@ -90,7 +85,6 @@ function parseProductosSheet(buf: ArrayBuffer, productos: Producto[]): ParseResu
     }
     nombresVistos.set(nombreNorm, nombre)
 
-    // Detección 2: sin precio en col F
     if (precio <= 0) {
       filas.push({
         status: 'sin-precio',
@@ -104,7 +98,7 @@ function parseProductosSheet(buf: ArrayBuffer, productos: Producto[]): ParseResu
     const existente = productosByNorm.get(nombreNorm)
 
     if (!existente) {
-      // No existe → crear nuevo
+    
       filas.push({
         status: 'nuevo',
         nombreExcel: nombre,
@@ -145,7 +139,6 @@ export default function ImportarProductosExcel({ productos, agregar, actualizar,
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
-  // Por default: 'nuevo' y 'cambia-precio' marcados; el resto desmarcados
   const [seleccionados, setSeleccionados] = useState<Record<number, boolean>>({})
 
   const handleFile = async (file: File) => {
@@ -161,7 +154,6 @@ export default function ImportarProductosExcel({ productos, agregar, actualizar,
         setError('La hoja "Tabla precios" no tiene productos para importar')
       } else {
         setParsed(result.filas)
-        // Defaults: marca solo accionables (nuevo, cambia-precio)
         const initSel: Record<number, boolean> = {}
         result.filas.forEach((f, i) => {
           if (f.status === 'nuevo' || f.status === 'cambia-precio') initSel[i] = true
@@ -178,7 +170,6 @@ export default function ImportarProductosExcel({ productos, agregar, actualizar,
   const toggleFila = (idx: number) => {
     const f = parsed?.[idx]
     if (!f) return
-    // Solo permitir toggle en filas accionables
     if (f.status !== 'nuevo' && f.status !== 'cambia-precio') return
     setSeleccionados(s => ({ ...s, [idx]: !s[idx] }))
   }

@@ -38,8 +38,11 @@ export function useInventarios() {
   }
 
   const actualizar = async (id: string, inventario: InventarioInput) => {
-    await apiFetch(`${API_MANAGEMENT}/inventarios/${id}`, { method: 'DELETE' })
-    await guardar(inventario)
+    await apiFetch(`${API_MANAGEMENT}/inventarios/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fecha: inventario.fecha, lineas: mapLineas(inventario.lineas), totalGeneral: inventario.totalGeneral }),
+    })
+    await fetchAll()
   }
 
   const eliminar = async (id: string) => {

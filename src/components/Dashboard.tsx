@@ -73,7 +73,7 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
   const pieTotal = pieData.reduce((s, d) => s + d.value, 0)
 
   const rankingMap: Record<string, { nombre: string; color: string; avatar: string; total: number; noches: number }> = {}
-  // Inicializar con todos los trabajadores registrados
+ 
   trabajadores.forEach(t => {
     rankingMap[t.id] = { nombre: t.nombre, color: t.color, avatar: t.avatar, total: 0, noches: 0 }
   })

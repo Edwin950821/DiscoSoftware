@@ -5,6 +5,7 @@ import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
 import { fmtFull } from '../lib/utils'
 import ImportarProductosExcel from './ImportarProductosExcel'
+import { useIsReadOnly } from '../hooks/useIsReadOnly'
 
 interface Props {
   productos: Producto[]
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export default function Productos({ productos, agregar, actualizar, eliminar }: Props) {
+  const isReadOnly = useIsReadOnly()
   const [busqueda, setBusqueda] = useState('')
   const [mostrarForm, setMostrarForm] = useState(false)
   const [nombre, setNombre] = useState('')
@@ -125,14 +127,16 @@ export default function Productos({ productos, agregar, actualizar, eliminar }: 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto shrink-0">
-          <Btn variant="ghost" onClick={() => setShowImport(true)} className="flex-1 sm:flex-initial">
-            Importar Excel
-          </Btn>
-          <Btn onClick={() => { setMostrarForm(!mostrarForm); setError('') }} className="flex-1 sm:flex-initial">
-            {mostrarForm ? 'Cancelar' : '+ Nuevo'}
-          </Btn>
-        </div>
+        {!isReadOnly && (
+          <div className="flex gap-2 w-full sm:w-auto shrink-0">
+            <Btn variant="ghost" onClick={() => setShowImport(true)} className="flex-1 sm:flex-initial">
+              Importar Excel
+            </Btn>
+            <Btn onClick={() => { setMostrarForm(!mostrarForm); setError('') }} className="flex-1 sm:flex-initial">
+              {mostrarForm ? 'Cancelar' : '+ Nuevo'}
+            </Btn>
+          </div>
+        )}
       </div>
       {showImport && (
         <ImportarProductosExcel
@@ -207,6 +211,7 @@ export default function Productos({ productos, agregar, actualizar, eliminar }: 
                   <span className={`text-sm ${p.activo ? 'text-white' : 'text-white/30 line-through'}`}>{p.nombre}</span>
                   <span className="text-xs text-[#FFE66D] shrink-0">{fmtFull(p.precio)}</span>
                 </div>
+                {!isReadOnly && (
                 <div className="flex gap-2 sm:gap-1 shrink-0">
                   <button onClick={() => startEdit(p)} title="Editar"
                     className="p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-white/10 text-white/70 hover:bg-white/5 transition-all">
@@ -233,6 +238,7 @@ export default function Productos({ productos, agregar, actualizar, eliminar }: 
                     <span className="hidden sm:inline text-sm font-medium">Eliminar</span>
                   </button>
                 </div>
+                )}
               </div>
             )}
           </Card>

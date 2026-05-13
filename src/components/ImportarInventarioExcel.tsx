@@ -9,15 +9,15 @@ interface LineaParseada {
   status: LineaStatus
   nombreExcel: string
   productoMatched?: { id: string; nombre: string }
-  candidatos?: string[] // para 'ambiguo'
-  motivo?: string       // texto explicativo
+  candidatos?: string[]
+  motivo?: string      
   linea: LineaInventario
 }
 
 interface ParsedBlock {
   fecha: string
-  lineas: LineaInventario[]        // las que SE IMPORTAN (status='ok' y seleccionadas)
-  todasLasLineas: LineaParseada[]  // todas para mostrar al usuario
+  lineas: LineaInventario[]       
+  todasLasLineas: LineaParseada[]  
   totalGeneral: number
 }
 
@@ -37,7 +37,6 @@ const STATUS_CFG: Record<LineaStatus, { icon: string; color: string }> = {
 }
 
 function parseInventarioSheet(buf: ArrayBuffer, productos: Producto[]): ParseResult {
-  // Bug fix: pasar Uint8Array (no ArrayBuffer raw) para compatibilidad con xlsx
   const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
   const sheet = wb.Sheets[SHEET_NAME]
   if (!sheet) {
@@ -47,7 +46,6 @@ function parseInventarioSheet(buf: ArrayBuffer, productos: Producto[]): ParseRes
   const merges = sheet['!merges'] || []
   const dateBlocks: { fecha: string; startCol: number; endCol: number }[] = []
 
-  // Buscar celdas merged en row 2 (index 1) que contengan fechas seriales
   for (const m of merges) {
     if (m.s.r !== 1) continue
     const cell = sheet[XLSX.utils.encode_cell({ r: 1, c: m.s.c })]
@@ -56,8 +54,6 @@ function parseInventarioSheet(buf: ArrayBuffer, productos: Producto[]): ParseRes
     if (typeof v === 'number' && v > 40000) {
       const d = XLSX.SSF.parse_date_code(v)
       if (!d) continue
-      // Bug fix: d.d puede ser fraccional si el serial tiene componente de hora.
-      // Math.floor garantiza día entero válido en formato YYYY-MM-DD.
       const fecha = `${d.y}-${String(d.m).padStart(2, '0')}-${String(Math.floor(d.d)).padStart(2, '0')}`
       dateBlocks.push({ fecha, startCol: m.s.c, endCol: m.e.c })
     }
@@ -264,14 +260,20 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
 
   const nuevos = parsed?.filter(b => !fechasExistentes.has(b.fecha)) ?? []
   const duplicados = parsed?.filter(b => fechasExistentes.has(b.fecha)) ?? []
-  const aImportar = nuevos.filter(b => seleccionados[b.fecha])
-  const todosSeleccionados = nuevos.length > 0 && aImportar.length === nuevos.length
+  const aImportar = nuevos.filter(b => seleccionados[b.fecha] && b.lineas.length > 0)
+  const seleccionablesNuevos = nuevos.filter(b => b.lineas.length > 0)
+  const todosSeleccionados = seleccionablesNuevos.length > 0 && aImportar.length === seleccionablesNuevos.length
   const algunoSeleccionado = aImportar.length > 0
 
   const totalAvisos = nuevos.reduce(
     (sum, b) => sum + b.todasLasLineas.filter(l => l.status !== 'ok').length,
     0
   )
+  const totalSinMatch = nuevos.reduce(
+    (sum, b) => sum + b.todasLasLineas.filter(l => l.status === 'no-match').length,
+    0
+  )
+  const fechasVacias = nuevos.filter(b => b.lineas.length === 0).length
 
   const toggleFecha = (fecha: string) => {
     setSeleccionados(s => ({ ...s, [fecha]: !s[fecha] }))
@@ -282,7 +284,7 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
       setSeleccionados({})
     } else {
       const all: Record<string, boolean> = {}
-      for (const b of nuevos) all[b.fecha] = true
+      for (const b of seleccionablesNuevos) all[b.fecha] = true
       setSeleccionados(all)
     }
   }
@@ -292,11 +294,18 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
     setImporting(true)
     setError('')
     try {
-      const toImport: InventarioInput[] = aImportar.map(b => ({
-        fecha: b.fecha,
-        lineas: b.lineas,
-        totalGeneral: b.totalGeneral,
-      }))
+      const toImport: InventarioInput[] = aImportar
+        .filter(b => b.lineas.length > 0)
+        .map(b => ({
+          fecha: b.fecha,
+          lineas: b.lineas,
+          totalGeneral: b.totalGeneral,
+        }))
+      if (toImport.length === 0) {
+        setError('Ninguna fecha tiene productos para importar. Importa primero los productos en Productos > Importar Excel.')
+        setImporting(false)
+        return
+      }
       await onImport(toImport)
       onClose()
     } catch (e: any) {
@@ -326,7 +335,6 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
               <div
                 onDragOver={e => { e.preventDefault(); if (!parsing) setDragOver(true) }}
                 onDragLeave={e => {
-                  // Bug fix: solo desactivar si realmente salimos del contenedor — no de un hijo
                   if (e.currentTarget.contains(e.relatedTarget as Node)) return
                   setDragOver(false)
                 }}
@@ -375,6 +383,26 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
           <div>
             <p className="text-[11px] text-white/40 mb-3">Archivo: <span className="text-white/70">{fileName}</span></p>
 
+            {(totalSinMatch > 0 || fechasVacias > 0) && (
+              <div className="mb-3 p-3 rounded-lg bg-[#FF5050]/10 border border-[#FF5050]/20">
+                <p className="text-[11px] text-[#FF5050] font-medium mb-1">
+                  {totalSinMatch > 0 && (
+                    <>{totalSinMatch} producto{totalSinMatch === 1 ? '' : 's'} del Excel no existe{totalSinMatch === 1 ? '' : 'n'} en este negocio</>
+                  )}
+                  {totalSinMatch > 0 && fechasVacias > 0 && ' · '}
+                  {fechasVacias > 0 && (
+                    <>{fechasVacias} fecha{fechasVacias === 1 ? '' : 's'} sin productos para importar</>
+                  )}
+                </p>
+                <p className="text-[10px] text-white/60">
+                  {totalSinMatch > 0
+                    ? <>Importá primero la lista de productos en <span className="text-[#CDA52F]">Productos → Importar Excel</span>, después volvé acá a importar el inventario.</>
+                    : <>Revisá los productos marcados como ambiguos o duplicados (click en ▶ de cada fecha) para entender por qué quedaron sin importar.</>
+                  }
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-3 gap-2 mb-4 text-center">
               <div className="p-3 rounded-lg bg-[#4ECDC4]/10 border border-[#4ECDC4]/20">
                 <p className="text-2xl font-bold text-[#4ECDC4]">{nuevos.length}</p>
@@ -404,28 +432,36 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
             )}
             <div className="space-y-1.5 mb-4 max-h-56 overflow-auto pr-2">
               {nuevos.map(b => {
-                const checked = !!seleccionados[b.fecha]
+                const sinProductos = b.lineas.length === 0
+                const checked = !!seleccionados[b.fecha] && !sinProductos
                 const isExpanded = !!expandidas[b.fecha]
                 const problematicas = b.todasLasLineas.filter(l => l.status !== 'ok').length
                 return (
                   <div
                     key={b.fecha}
                     className={`rounded-lg border transition-colors ${
-                      checked
-                        ? 'bg-[#4ECDC4]/10 border-[#4ECDC4]/30'
-                        : 'bg-white/[0.02] border-white/[0.05]'
+                      sinProductos
+                        ? 'bg-[#FF5050]/5 border-[#FF5050]/20 opacity-70'
+                        : checked
+                          ? 'bg-[#4ECDC4]/10 border-[#4ECDC4]/30'
+                          : 'bg-white/[0.02] border-white/[0.05]'
                     }`}
                   >
                     <div className="flex items-center gap-2 p-2">
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={sinProductos}
                         onChange={() => toggleFecha(b.fecha)}
-                        className="w-4 h-4 accent-[#4ECDC4] cursor-pointer shrink-0"
+                        className="w-4 h-4 accent-[#4ECDC4] cursor-pointer shrink-0 disabled:cursor-not-allowed"
                       />
-                      <span className={`text-sm flex-1 ${checked ? 'text-white' : 'text-white/60'}`}>{b.fecha}</span>
-                      <span className="text-[11px] text-white/50 shrink-0">
-                        {b.lineas.length} OK
+                      <span className={`text-sm flex-1 ${sinProductos ? 'text-white/40' : checked ? 'text-white' : 'text-white/60'}`}>{b.fecha}</span>
+                      <span className="text-[11px] shrink-0">
+                        {sinProductos ? (
+                          <span className="text-[#FF5050]">sin productos</span>
+                        ) : (
+                          <span className="text-white/50">{b.lineas.length} OK</span>
+                        )}
                         {problematicas > 0 && <span className="text-[#FFE66D]"> · {problematicas} ⚠</span>}
                       </span>
                       <span className={`text-xs font-semibold shrink-0 ${checked ? 'text-white' : 'text-white/50'}`}>
