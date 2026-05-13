@@ -34,9 +34,15 @@ interface ParsedJornada {
   warnings: string[]
 }
 
+interface ProductoFaltante {
+  nombre: string
+  precioEstimado: number
+}
+
 interface ParseResult {
   jornadas: ParsedJornada[]
   trabajadoresNoEncontrados: string[]
+  productosNoEncontrados: ProductoFaltante[]
   globalWarnings: string[]
 }
 
@@ -134,9 +140,10 @@ function parseDateBlock(
   productos: Producto[],
   trabajador: Trabajador | undefined,
   trabajadorNombreExcel: string,
-): { liq: LiquidacionTrabajador; problemas: LineaProblema[]; tieneData: boolean } {
+): { liq: LiquidacionTrabajador; problemas: LineaProblema[]; tieneData: boolean; productosFaltantes: ProductoFaltante[] } {
   const lineas: LineaVenta[] = []
   const problemas: LineaProblema[] = []
+  const productosFaltantes: ProductoFaltante[] = []
   const productoIdsUsados = new Set<string>()
 
   for (let r = ROW_PRODUCT_FIRST; r <= ROW_PRODUCT_LAST; r++) {
@@ -158,6 +165,7 @@ function parseDateBlock(
     }
     if (!m.producto) {
       problemas.push({ nombreExcel, motivo: 'No existe en BD' })
+      productosFaltantes.push({ nombre: nombreExcel, precioEstimado: precioUnit })
       continue
     }
     if (productoIdsUsados.has(m.producto.id)) {
@@ -270,13 +278,14 @@ function parseDateBlock(
 
   const tieneData = lineas.length > 0 || transacciones.length > 0 || vales.length > 0 || cortesias.length > 0 || gastos.length > 0 || efectivoEntregado > 0
 
-  return { liq, problemas, tieneData }
+  return { liq, problemas, tieneData, productosFaltantes }
 }
 
 export function parseLiquidacionWorkbook(buf: ArrayBuffer, productos: Producto[], trabajadores: Trabajador[]): ParseResult {
   const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
   const globalWarnings: string[] = []
   const trabajadoresNoEncontrados: string[] = []
+  const productosFaltantesMap = new Map<string, ProductoFaltante>()
 
   const porFecha = new Map<string, ParsedJornada>()
 
@@ -305,7 +314,14 @@ export function parseLiquidacionWorkbook(buf: ArrayBuffer, productos: Producto[]
     }
 
     for (const f of fechas) {
-      const { liq, problemas, tieneData } = parseDateBlock(sh, f.startCol, layout, productos, trabajador, trabajadorNombreExcel)
+      const { liq, problemas, tieneData, productosFaltantes } = parseDateBlock(sh, f.startCol, layout, productos, trabajador, trabajadorNombreExcel)
+      for (const pf of productosFaltantes) {
+        const key = normalizar(pf.nombre)
+        const existing = productosFaltantesMap.get(key)
+        if (!existing || (pf.precioEstimado > 0 && existing.precioEstimado <= 0)) {
+          productosFaltantesMap.set(key, pf)
+        }
+      }
       if (!tieneData) continue
 
       let pj = porFecha.get(f.fecha)
@@ -325,7 +341,8 @@ export function parseLiquidacionWorkbook(buf: ArrayBuffer, productos: Producto[]
   }
 
   const jornadas = Array.from(porFecha.values()).sort((a, b) => a.fecha.localeCompare(b.fecha))
-  return { jornadas, trabajadoresNoEncontrados, globalWarnings }
+  const productosNoEncontrados = Array.from(productosFaltantesMap.values())
+  return { jornadas, trabajadoresNoEncontrados, productosNoEncontrados, globalWarnings }
 }
 
 interface Props {
@@ -333,14 +350,18 @@ interface Props {
   trabajadores: Trabajador[]
   jornadasExistentes: Jornada[]
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
+  agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
   onImport: (toImport: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }[]) => Promise<void>
   onClose: () => void
 }
 
-export default function ImportarLiquidacionExcel({ productos, trabajadores, jornadasExistentes, agregarTrabajador, onImport, onClose }: Props) {
+export default function ImportarLiquidacionExcel({ productos, trabajadores, jornadasExistentes, agregarTrabajador, agregarProducto, onImport, onClose }: Props) {
   const [parsing, setParsing] = useState(false)
   const [creandoTrabajadores, setCreandoTrabajadores] = useState(false)
   const [trabajadoresCreados, setTrabajadoresCreados] = useState<string[]>([])
+  const [creandoProductos, setCreandoProductos] = useState(false)
+  const [productosCreados, setProductosCreados] = useState<string[]>([])
+  const [productosEditables, setProductosEditables] = useState<ProductoFaltante[]>([])
   const [importing, setImporting] = useState(false)
   const [parsed, setParsed] = useState<ParseResult | null>(null)
   const [fileName, setFileName] = useState('')
@@ -355,11 +376,12 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
 
   const reparsear = useCallback((buf: ArrayBuffer) => {
     const result = parseLiquidacionWorkbook(buf, productos, trabajadores)
-    if (result.jornadas.length === 0) {
+    if (result.jornadas.length === 0 && result.productosNoEncontrados.length === 0) {
       setError(result.globalWarnings[0] || 'No se encontraron hojas Liq Diaria * o Liq Barra con datos')
       return
     }
     setParsed(result)
+    setProductosEditables(result.productosNoEncontrados.map(p => ({ ...p })))
     const existentes = new Set(jornadasExistentes.map(j => j.fecha))
     const initSel: Record<string, boolean> = {}
     for (const j of result.jornadas) {
@@ -370,13 +392,16 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
 
   useEffect(() => {
     if (!needsReparse || !fileBufRef.current) return
-    const todosPresentes = trabajadoresCreados.every(nombre =>
+    const trabsPresentes = trabajadoresCreados.every(nombre =>
       trabajadores.some(t => normalizar(t.nombre) === normalizar(nombre))
     )
-    if (!todosPresentes) return
+    const prodsPresentes = productosCreados.every(nombre =>
+      productos.some(p => normalizar(p.nombre) === normalizar(nombre))
+    )
+    if (!trabsPresentes || !prodsPresentes) return
     reparsear(fileBufRef.current)
     setNeedsReparse(false)
-  }, [needsReparse, reparsear, trabajadores, trabajadoresCreados])
+  }, [needsReparse, reparsear, trabajadores, trabajadoresCreados, productos, productosCreados])
 
   const handleFile = async (file: File) => {
     setParsing(true)
@@ -408,10 +433,11 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
         setTrabajadoresCreados(creados)
         setCreandoTrabajadores(false)
         setNeedsReparse(true)
-      } else if (result.jornadas.length === 0) {
+      } else if (result.jornadas.length === 0 && result.productosNoEncontrados.length === 0) {
         setError(result.globalWarnings[0] || 'No se encontraron hojas Liq Diaria * o Liq Barra con datos')
       } else {
         setParsed(result)
+        setProductosEditables(result.productosNoEncontrados.map(p => ({ ...p })))
         const initSel: Record<string, boolean> = {}
         for (const j of result.jornadas) {
           if (!fechasExistentes.has(j.fecha)) initSel[j.fecha] = true
@@ -433,6 +459,37 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
   const totalAvisos = nuevas.reduce((s, j) =>
     s + j.liquidaciones.reduce((s2, l) =>
       s2 + l.lineasProblema.length + (l.trabajadorMatch ? 0 : 1), 0), 0)
+
+  const updateProductoEditable = (idx: number, campo: 'nombre' | 'precioEstimado', valor: string) => {
+    setProductosEditables(prev => prev.map((p, i) => {
+      if (i !== idx) return p
+      if (campo === 'precioEstimado') return { ...p, precioEstimado: Number(valor) || 0 }
+      return { ...p, nombre: valor }
+    }))
+  }
+
+  const handleCrearProductos = async () => {
+    const validos = productosEditables.filter(p => p.nombre.trim() && p.precioEstimado > 0)
+    if (validos.length === 0) {
+      setError('Cada producto necesita un nombre y un precio mayor a 0.')
+      return
+    }
+    setCreandoProductos(true)
+    setError('')
+    const creados: string[] = []
+    for (const p of validos) {
+      try {
+        const nombre = p.nombre.trim()
+        await agregarProducto({ nombre, precio: p.precioEstimado, activo: true })
+        creados.push(nombre)
+      } catch (e: any) {
+        console.warn(`No se pudo crear producto ${p.nombre}:`, e?.message)
+      }
+    }
+    setProductosCreados(prev => [...prev, ...creados])
+    setCreandoProductos(false)
+    setNeedsReparse(true)
+  }
 
   const toggleFecha = (fecha: string) => setSeleccionados(s => ({ ...s, [fecha]: !s[fecha] }))
   const toggleTodas = () => {
@@ -546,6 +603,44 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
                 <p className="text-[11px] text-[#FF5050] font-medium mb-1">Trabajadores no encontrados (no se pudieron crear):</p>
                 <p className="text-[11px] text-white/60">{parsed.trabajadoresNoEncontrados.join(', ')}</p>
                 <p className="text-[10px] text-white/40 mt-1">Se omitirán esas hojas. Revisa la conexión y vuelve a importar.</p>
+              </div>
+            )}
+
+            {productosEditables.length > 0 && (
+              <div className="mb-3 p-3 rounded-lg bg-[#FFE66D]/10 border border-[#FFE66D]/20">
+                <p className="text-[11px] text-[#FFE66D] font-medium mb-1">
+                  {productosEditables.length} producto{productosEditables.length === 1 ? '' : 's'} del Excel no existe{productosEditables.length === 1 ? '' : 'n'} en este negocio
+                </p>
+                <p className="text-[10px] text-white/60 mb-2">
+                  Revisá el nombre y el precio, después tocá "Crear productos" para agregarlos. Los productos sin precio o sin nombre se omiten.
+                </p>
+                <div className="space-y-1 max-h-48 overflow-auto pr-1">
+                  {productosEditables.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={p.nombre}
+                        onChange={e => updateProductoEditable(i, 'nombre', e.target.value)}
+                        className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50"
+                        disabled={creandoProductos}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        value={p.precioEstimado || ''}
+                        onChange={e => updateProductoEditable(i, 'precioEstimado', e.target.value)}
+                        placeholder="Precio"
+                        className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50 tabular-nums text-right"
+                        disabled={creandoProductos}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end mt-2">
+                  <Btn size="sm" variant="primary" onClick={handleCrearProductos} disabled={creandoProductos}>
+                    {creandoProductos ? 'Creando...' : `Crear ${productosEditables.filter(p => p.nombre.trim() && p.precioEstimado > 0).length} productos`}
+                  </Btn>
+                </div>
               </div>
             )}
 

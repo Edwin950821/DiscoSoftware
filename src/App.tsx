@@ -514,7 +514,7 @@ export default function App() {
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
-            agregarTrabajador={agregarTrabajador} eliminarTrabajador={eliminarTrabajador}
+            agregarTrabajador={agregarTrabajador} agregarProducto={agregarProd} eliminarTrabajador={eliminarTrabajador}
             guardarJornada={guardarJornada} actualizarJornada={actualizarJornada} eliminarJornada={eliminarJornada}
             guardarInventario={guardarInventario} actualizarInventario={actualizarInventario} eliminarInventario={eliminarInventario}
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}
@@ -525,7 +525,7 @@ export default function App() {
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
-            agregarTrabajador={agregarTrabajador} eliminarTrabajador={eliminarTrabajador}
+            agregarTrabajador={agregarTrabajador} agregarProducto={agregarProd} eliminarTrabajador={eliminarTrabajador}
             guardarJornada={guardarJornada} actualizarJornada={actualizarJornada} eliminarJornada={eliminarJornada}
             guardarInventario={guardarInventario} actualizarInventario={actualizarInventario} eliminarInventario={eliminarInventario}
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}
@@ -536,7 +536,7 @@ export default function App() {
           <Liquidacion
             jornadas={jornadas} trabajadores={trabajadores} productos={productos}
             inventarios={inventarios} comparativos={comparativos}
-            agregarTrabajador={agregarTrabajador} eliminarTrabajador={eliminarTrabajador}
+            agregarTrabajador={agregarTrabajador} agregarProducto={agregarProd} eliminarTrabajador={eliminarTrabajador}
             guardarJornada={guardarJornada} actualizarJornada={actualizarJornada} eliminarJornada={eliminarJornada}
             guardarInventario={guardarInventario} actualizarInventario={actualizarInventario} eliminarInventario={eliminarInventario}
             guardarComparativo={guardarComparativo} eliminarComparativo={eliminarComparativo}

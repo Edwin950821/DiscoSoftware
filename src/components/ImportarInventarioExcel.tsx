@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { Btn } from './ui/Btn'
 import type { InventarioInput, LineaInventario, Producto, Inventario } from '../types'
@@ -10,20 +10,36 @@ interface LineaParseada {
   nombreExcel: string
   productoMatched?: { id: string; nombre: string }
   candidatos?: string[]
-  motivo?: string      
+  motivo?: string
   linea: LineaInventario
+}
+
+interface ProductoFaltante {
+  nombre: string
+  precioEstimado: number
 }
 
 interface ParsedBlock {
   fecha: string
-  lineas: LineaInventario[]       
-  todasLasLineas: LineaParseada[]  
+  lineas: LineaInventario[]
+  todasLasLineas: LineaParseada[]
   totalGeneral: number
 }
 
 interface ParseResult {
   blocks: ParsedBlock[]
+  productosNoEncontrados: ProductoFaltante[]
   warnings: string[]
+}
+
+function normalizarNombre(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/(\d+)\s*ml\b/g, '$1ml')
+    .replace(/(\d+)\s*(lt|l|litro|litros)\b/g, '$1l')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 const SHEET_NAME = 'INVENTARIO MONASTERY'
@@ -40,7 +56,7 @@ function parseInventarioSheet(buf: ArrayBuffer, productos: Producto[]): ParseRes
   const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
   const sheet = wb.Sheets[SHEET_NAME]
   if (!sheet) {
-    return { blocks: [], warnings: [`No se encontró la hoja "${SHEET_NAME}" en el archivo`] }
+    return { blocks: [], productosNoEncontrados: [], warnings: [`No se encontró la hoja "${SHEET_NAME}" en el archivo`] }
   }
 
   const merges = sheet['!merges'] || []
@@ -60,11 +76,12 @@ function parseInventarioSheet(buf: ArrayBuffer, productos: Producto[]): ParseRes
   }
 
   if (dateBlocks.length === 0) {
-    return { blocks: [], warnings: ['No se detectaron fechas en la hoja. ¿La plantilla cambió?'] }
+    return { blocks: [], productosNoEncontrados: [], warnings: ['No se detectaron fechas en la hoja. ¿La plantilla cambió?'] }
   }
 
   const blocks: ParsedBlock[] = []
   const warnings: string[] = []
+  const productosFaltantesMap = new Map<string, ProductoFaltante>()
 
   for (const block of dateBlocks) {
     const lineas: LineaInventario[] = []
@@ -176,6 +193,12 @@ function parseInventarioSheet(buf: ArrayBuffer, productos: Producto[]): ParseRes
           motivo: 'No existe ese producto en la BD del negocio',
           linea: lineaBase,
         })
+        const key = normalizarNombre(nombre)
+        const prevFaltante = productosFaltantesMap.get(key)
+        const precioGuess = lineaBase.valorUnitario
+        if (!prevFaltante || (precioGuess > 0 && prevFaltante.precioEstimado <= 0)) {
+          productosFaltantesMap.set(key, { nombre, precioEstimado: precioGuess })
+        }
         continue
       }
 
@@ -211,17 +234,18 @@ function parseInventarioSheet(buf: ArrayBuffer, productos: Producto[]): ParseRes
     blocks.push({ fecha: block.fecha, lineas, todasLasLineas, totalGeneral })
   }
 
-  return { blocks, warnings }
+  return { blocks, productosNoEncontrados: Array.from(productosFaltantesMap.values()), warnings }
 }
 
 interface Props {
   productos: Producto[]
   inventariosExistentes: Inventario[]
+  agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
   onImport: (inventarios: InventarioInput[]) => Promise<void>
   onClose: () => void
 }
 
-export default function ImportarInventarioExcel({ productos, inventariosExistentes, onImport, onClose }: Props) {
+export default function ImportarInventarioExcel({ productos, inventariosExistentes, agregarProducto, onImport, onClose }: Props) {
   const [parsing, setParsing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [parsed, setParsed] = useState<ParsedBlock[] | null>(null)
@@ -230,8 +254,38 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
   const [dragOver, setDragOver] = useState(false)
   const [seleccionados, setSeleccionados] = useState<Record<string, boolean>>({})
   const [expandidas, setExpandidas] = useState<Record<string, boolean>>({})
+  const [productosEditables, setProductosEditables] = useState<ProductoFaltante[]>([])
+  const [productosCreados, setProductosCreados] = useState<string[]>([])
+  const [creandoProductos, setCreandoProductos] = useState(false)
+  const [needsReparse, setNeedsReparse] = useState(false)
+  const fileBufRef = useRef<ArrayBuffer | null>(null)
 
   const fechasExistentes = new Set(inventariosExistentes.map(i => i.fecha))
+
+  const reparsear = useCallback((buf: ArrayBuffer) => {
+    const result = parseInventarioSheet(buf, productos)
+    if (result.blocks.length === 0 && result.productosNoEncontrados.length === 0) {
+      setError(result.warnings[0] || 'No se pudo extraer información del archivo')
+      return
+    }
+    setParsed(result.blocks)
+    setProductosEditables(result.productosNoEncontrados.map(p => ({ ...p })))
+    const initSel: Record<string, boolean> = {}
+    for (const b of result.blocks) {
+      if (!fechasExistentes.has(b.fecha)) initSel[b.fecha] = true
+    }
+    setSeleccionados(initSel)
+  }, [productos, inventariosExistentes])
+
+  useEffect(() => {
+    if (!needsReparse || !fileBufRef.current) return
+    const todosPresentes = productosCreados.every(nombre =>
+      productos.some(p => normalizarNombre(p.nombre) === normalizarNombre(nombre))
+    )
+    if (!todosPresentes) return
+    reparsear(fileBufRef.current)
+    setNeedsReparse(false)
+  }, [needsReparse, reparsear, productos, productosCreados])
 
   const handleFile = async (file: File) => {
     setParsing(true)
@@ -239,12 +293,13 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
     setFileName(file.name)
     try {
       const buf = await file.arrayBuffer()
+      fileBufRef.current = buf
       const result = parseInventarioSheet(buf, productos)
-      if (result.blocks.length === 0) {
+      if (result.blocks.length === 0 && result.productosNoEncontrados.length === 0) {
         setError(result.warnings[0] || 'No se pudo extraer información del archivo')
       } else {
         setParsed(result.blocks)
-        
+        setProductosEditables(result.productosNoEncontrados.map(p => ({ ...p })))
         const initSel: Record<string, boolean> = {}
         for (const b of result.blocks) {
           if (!fechasExistentes.has(b.fecha)) initSel[b.fecha] = true
@@ -256,6 +311,37 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
     } finally {
       setParsing(false)
     }
+  }
+
+  const updateProductoEditable = (idx: number, campo: 'nombre' | 'precioEstimado', valor: string) => {
+    setProductosEditables(prev => prev.map((p, i) => {
+      if (i !== idx) return p
+      if (campo === 'precioEstimado') return { ...p, precioEstimado: Number(valor) || 0 }
+      return { ...p, nombre: valor }
+    }))
+  }
+
+  const handleCrearProductos = async () => {
+    const validos = productosEditables.filter(p => p.nombre.trim() && p.precioEstimado > 0)
+    if (validos.length === 0) {
+      setError('Cada producto necesita un nombre y un precio mayor a 0.')
+      return
+    }
+    setCreandoProductos(true)
+    setError('')
+    const creados: string[] = []
+    for (const p of validos) {
+      try {
+        const nombre = p.nombre.trim()
+        await agregarProducto({ nombre, precio: p.precioEstimado, activo: true })
+        creados.push(nombre)
+      } catch (e: any) {
+        console.warn(`No se pudo crear producto ${p.nombre}:`, e?.message)
+      }
+    }
+    setProductosCreados(prev => [...prev, ...creados])
+    setCreandoProductos(false)
+    setNeedsReparse(true)
   }
 
   const nuevos = parsed?.filter(b => !fechasExistentes.has(b.fecha)) ?? []
@@ -383,7 +469,45 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
           <div>
             <p className="text-[11px] text-white/40 mb-3">Archivo: <span className="text-white/70">{fileName}</span></p>
 
-            {(totalSinMatch > 0 || fechasVacias > 0) && (
+            {productosEditables.length > 0 && (
+              <div className="mb-3 p-3 rounded-lg bg-[#FFE66D]/10 border border-[#FFE66D]/20">
+                <p className="text-[11px] text-[#FFE66D] font-medium mb-1">
+                  {productosEditables.length} producto{productosEditables.length === 1 ? '' : 's'} del Excel no existe{productosEditables.length === 1 ? '' : 'n'} en este negocio
+                </p>
+                <p className="text-[10px] text-white/60 mb-2">
+                  Revisá el nombre y el precio (extraído de "valor unitario" del Excel), después tocá "Crear productos" para agregarlos. Productos sin precio o sin nombre se omiten.
+                </p>
+                <div className="space-y-1 max-h-48 overflow-auto pr-1">
+                  {productosEditables.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={p.nombre}
+                        onChange={e => updateProductoEditable(i, 'nombre', e.target.value)}
+                        className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50"
+                        disabled={creandoProductos}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        value={p.precioEstimado || ''}
+                        onChange={e => updateProductoEditable(i, 'precioEstimado', e.target.value)}
+                        placeholder="Precio"
+                        className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50 tabular-nums text-right"
+                        disabled={creandoProductos}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end mt-2">
+                  <Btn size="sm" variant="primary" onClick={handleCrearProductos} disabled={creandoProductos}>
+                    {creandoProductos ? 'Creando...' : `Crear ${productosEditables.filter(p => p.nombre.trim() && p.precioEstimado > 0).length} productos`}
+                  </Btn>
+                </div>
+              </div>
+            )}
+
+            {productosEditables.length === 0 && (totalSinMatch > 0 || fechasVacias > 0) && (
               <div className="mb-3 p-3 rounded-lg bg-[#FF5050]/10 border border-[#FF5050]/20">
                 <p className="text-[11px] text-[#FF5050] font-medium mb-1">
                   {totalSinMatch > 0 && (
@@ -395,10 +519,7 @@ export default function ImportarInventarioExcel({ productos, inventariosExistent
                   )}
                 </p>
                 <p className="text-[10px] text-white/60">
-                  {totalSinMatch > 0
-                    ? <>Importá primero la lista de productos en <span className="text-[#CDA52F]">Productos → Importar Excel</span>, después volvé acá a importar el inventario.</>
-                    : <>Revisá los productos marcados como ambiguos o duplicados (click en ▶ de cada fecha) para entender por qué quedaron sin importar.</>
-                  }
+                  Revisá los productos marcados como ambiguos o duplicados (click en ▶ de cada fecha) para entender por qué quedaron sin importar.
                 </p>
               </div>
             )}

@@ -230,6 +230,7 @@ interface Props {
   inventarios: InventarioType[]
   comparativos: ComparativoType[]
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
+  agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
   eliminarTrabajador: (id: string) => Promise<void>
   guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
   actualizarJornada: (id: string, input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
@@ -244,7 +245,7 @@ interface Props {
 
 export default function Liquidacion({
   jornadas, trabajadores, productos, inventarios, comparativos,
-  agregarTrabajador, eliminarTrabajador,
+  agregarTrabajador, agregarProducto, eliminarTrabajador,
   guardarJornada, actualizarJornada, eliminarJornada,
   guardarInventario, actualizarInventario, eliminarInventario,
   guardarComparativo, eliminarComparativo,
@@ -682,7 +683,7 @@ export default function Liquidacion({
             onNueva={() => { setSesion(nextSesion()); setEditJornadaId(null); setModoLiq('nueva') }}
             onEditar={editarJornada}
             productos={productos} trabajadores={trabajadores} guardarJornada={guardarJornada}
-            agregarTrabajador={agregarTrabajador} />
+            agregarTrabajador={agregarTrabajador} agregarProducto={agregarProducto} />
         )
       )}
 
@@ -694,6 +695,9 @@ export default function Liquidacion({
           trabajadores={trabajadores}
           guardarJornada={guardarJornada}
           agregarTrabajador={agregarTrabajador}
+          agregarProducto={agregarProducto}
+          onEditar={editarJornada}
+          handleEliminar={handleEliminarJ}
         />
       )}
 
@@ -707,7 +711,7 @@ export default function Liquidacion({
           <InventarioLista inventarios={inventarios} expandedId={expandedInv} setExpandedId={setExpandedInv}
             confirmDelete={confirmDeleteI} setConfirmDelete={setConfirmDeleteI}
             handleEliminar={handleEliminarI} onNuevo={crearNuevoInv} onEditar={editarInv} productosLoaded={productos.length > 0}
-            productos={productos} guardarInventario={guardarInventario} />
+            productos={productos} agregarProducto={agregarProducto} guardarInventario={guardarInventario} />
         )
       )}
 
@@ -745,12 +749,13 @@ export default function Liquidacion({
 
 
 
-function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva, onEditar, productos, trabajadores, guardarJornada, agregarTrabajador }: {
+function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva, onEditar, productos, trabajadores, guardarJornada, agregarTrabajador, agregarProducto }: {
   jornadas: Jornada[]; confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNueva: () => void; onEditar: (j: Jornada) => void
   productos: Producto[]; trabajadores: Trabajador[]
   guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
+  agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
 }) {
   const isReadOnly = useIsReadOnly()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -801,6 +806,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
           trabajadores={trabajadores}
           jornadasExistentes={jornadas}
           agregarTrabajador={agregarTrabajador}
+          agregarProducto={agregarProducto}
           onImport={handleImport}
           onClose={() => setShowImport(false)}
         />
@@ -1575,11 +1581,12 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
   )
 }
 
-function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, onEditar, productosLoaded, productos, guardarInventario }: {
+function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, onEditar, productosLoaded, productos, agregarProducto, guardarInventario }: {
   inventarios: InventarioType[]; expandedId: string | null; setExpandedId: (id: string | null) => void
   confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNuevo: () => void; onEditar: (inv: InventarioType) => void; productosLoaded: boolean
-  productos: Producto[]; guardarInventario: (inv: InventarioInput) => Promise<void>
+  productos: Producto[]; agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
+  guardarInventario: (inv: InventarioInput) => Promise<void>
 }) {
   const isReadOnly = useIsReadOnly()
   const [desde, setDesde] = useState('')
@@ -1621,6 +1628,7 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
         <ImportarInventarioExcel
           productos={productos}
           inventariosExistentes={inventarios}
+          agregarProducto={agregarProducto}
           onImport={handleImport}
           onClose={() => setShowImport(false)}
         />
@@ -1944,7 +1952,8 @@ const FILAS_SEM: { key: string; label: string; color: string; bold?: boolean; is
 ]
 
 function LiquidacionSemana({
-  jornadas, productos, trabajadores, guardarJornada, agregarTrabajador,
+  jornadas, productos, trabajadores, guardarJornada, agregarTrabajador, agregarProducto,
+  onEditar, handleEliminar,
 }: {
   jornadas: Jornada[]
   inventarios: InventarioType[]
@@ -1952,9 +1961,13 @@ function LiquidacionSemana({
   trabajadores: Trabajador[]
   guardarJornada: (j: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
+  agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
+  onEditar: (j: Jornada) => void
+  handleEliminar: (id: string) => void
 }) {
   const isReadOnly = useIsReadOnly()
   const [showImport, setShowImport] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const handleImport = async (toImport: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }[]) => {
     const fallidos: { fecha: string; error: string }[] = []
@@ -2066,6 +2079,7 @@ function LiquidacionSemana({
           trabajadores={trabajadores}
           jornadasExistentes={jornadas}
           agregarTrabajador={agregarTrabajador}
+          agregarProducto={agregarProducto}
           onImport={handleImport}
           onClose={() => setShowImport(false)}
         />
@@ -2260,6 +2274,38 @@ function LiquidacionSemana({
               </table>
             </div>
           </Card>
+
+          {!isReadOnly && (
+            <Card className="border-white/[0.07]">
+              <p className="text-[10px] text-white/30 uppercase tracking-wider font-bold mb-3">Acciones por Jornada</p>
+              <div className="space-y-1.5">
+                {jornadasVisibles.map(j => (
+                  <div key={j.id} className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02] border border-white/[0.05]">
+                    <span className="text-[11px] font-bold text-[#CDA52F] shrink-0">{j.sesion}</span>
+                    <span className="text-[11px] text-white/40 shrink-0">{j.fecha}</span>
+                    <span className="text-[11px] text-white/30 ml-2 shrink-0">{j.liquidaciones.length} trab.</span>
+                    <span className="text-[11px] font-semibold text-[#FFE66D] ml-auto shrink-0">{fmtCOP(j.totalVendido)}</span>
+                    <Btn size="sm" variant="ghost" onClick={() => onEditar(j)} className="flex items-center gap-1.5 shrink-0">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      Editar
+                    </Btn>
+                    {confirmDelete === j.id ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[11px] text-[#FF5050]">Seguro?</span>
+                        <Btn size="sm" variant="danger" onClick={() => { handleEliminar(j.id); setConfirmDelete(null) }}>Si</Btn>
+                        <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
+                      </div>
+                    ) : (
+                      <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(j.id)} className="flex items-center gap-1.5 shrink-0">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                        Eliminar
+                      </Btn>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           <div className="flex justify-end mt-4">
             <Btn variant="ghost" onClick={() => printSemanal(jornadasVisibles, d)} className="flex items-center gap-1.5">
