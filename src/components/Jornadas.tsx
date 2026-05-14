@@ -37,30 +37,37 @@ function generarCalendario(
   const dateToSi: Record<string, number> = {}
   let siCount = 0
 
-  // Anclar cada SI en su sábado: incluye Vie festivo antes, Sáb, Dom, Lun festivo después
+  // Si el mes empieza en Sáb/Dom antes del primer Vie → pre-asignar a SI-1
+  const firstDayDow = new Date(year, month, 1).getDay()
+  if (firstDayDow === 6 || firstDayDow === 0) {
+    siCount = 1
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dow = new Date(year, month, d).getDay()
+      if (dow === 5) break // llegamos al primer viernes, el loop de abajo toma el resto
+      if (dow === 6 || dow === 0) dateToSi[fmt(year, month, d)] = 1
+      else if (festivos.has(fmt(year, month, d))) dateToSi[fmt(year, month, d)] = 1
+    }
+  }
+
+  // Anclar cada SI en su VIERNES: Vie (si festivo) + Sáb + Dom + Lun (si festivo)
   for (let d = 1; d <= daysInMonth; d++) {
-    if (new Date(year, month, d).getDay() !== 6) continue
+    if (new Date(year, month, d).getDay() !== 5) continue
     siCount++
     const si = siCount
 
-    // Viernes antes (si es festivo)
-    if (d - 1 >= 1 && new Date(year, month, d - 1).getDay() === 5 && festivos.has(fmt(year, month, d - 1)))
-      dateToSi[fmt(year, month, d - 1)] = si
+    // Viernes (solo si festivo)
+    if (festivos.has(fmt(year, month, d))) dateToSi[fmt(year, month, d)] = si
 
-    // Sábado (siempre)
-    dateToSi[fmt(year, month, d)] = si
-
-    // Domingo (siempre, si está en el mes)
+    // Sábado (siempre, d+1)
     if (d + 1 <= daysInMonth) dateToSi[fmt(year, month, d + 1)] = si
 
-    // Lunes después (solo si festivo)
-    if (d + 2 <= daysInMonth && new Date(year, month, d + 2).getDay() === 1 && festivos.has(fmt(year, month, d + 2)))
-      dateToSi[fmt(year, month, d + 2)] = si
-  }
+    // Domingo (siempre, d+2)
+    if (d + 2 <= daysInMonth) dateToSi[fmt(year, month, d + 2)] = si
 
-  // Si el mes empieza en domingo sin sábado previo en el mes → asignar a SI-1
-  if (new Date(year, month, 1).getDay() === 0 && !dateToSi[fmt(year, month, 1)] && siCount >= 1)
-    dateToSi[fmt(year, month, 1)] = 1
+    // Lunes después (solo si festivo, d+3)
+    if (d + 3 <= daysInMonth && new Date(year, month, d + 3).getDay() === 1 && festivos.has(fmt(year, month, d + 3)))
+      dateToSi[fmt(year, month, d + 3)] = si
+  }
 
   // Aplicar asignaciones manuales de festivos mid-semana
   for (const [fecha, si] of Object.entries(asignaciones))
