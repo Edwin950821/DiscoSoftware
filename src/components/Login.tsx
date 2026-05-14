@@ -177,9 +177,11 @@ export default function Login({ onLogin }: LoginProps) {
             </div>
 
 
-            <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+            <div
+              onClick={() => setRememberMe(v => !v)}
+              className="flex items-center gap-2.5 cursor-pointer select-none"
+            >
               <div
-                onClick={() => setRememberMe(v => !v)}
                 className="w-4 h-4 rounded flex items-center justify-center shrink-0 transition-all duration-200"
                 style={{
                   background: rememberMe ? 'linear-gradient(135deg, #D4AF37, #F5D76E)' : 'rgba(255,255,255,0.05)',
@@ -193,13 +195,12 @@ export default function Login({ onLogin }: LoginProps) {
                 )}
               </div>
               <span
-                onClick={() => setRememberMe(v => !v)}
                 className="text-xs transition-colors"
                 style={{ color: rememberMe ? 'rgba(212,175,55,0.8)' : 'rgba(255,255,255,0.35)' }}
               >
                 Mantener sesión activa (30 días)
               </span>
-            </label>
+            </div>
 
             {error && (
               <div className="text-sm text-center py-2 px-3 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20">
