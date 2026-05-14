@@ -857,35 +857,6 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                               {c.totalGastos > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Gast: {fmtFull(c.totalGastos)}</span>}
                             </div>
 
-                            {/* Detalle items: Transacciones, Vales, Cortesias, Gastos */}
-                            {((liq.transacciones?.length > 0) || (liq.vales?.length > 0) || (liq.cortesias?.length > 0) || (liq.gastos?.length > 0)) && (
-                              <div className="ml-9 mt-2 space-y-1.5">
-                                {liq.transacciones?.filter(t => t.monto > 0).map((t, ti) => (
-                                  <div key={`tr-${ti}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
-                                    <span className="text-white/35">{t.tipo}{t.concepto ? ` — ${t.concepto}` : ''}</span>
-                                    <span style={{ color: COLORES_PAGO[t.tipo] || '#A8E6CF' }} className="font-medium">{fmtFull(t.monto)}</span>
-                                  </div>
-                                ))}
-                                {liq.vales?.filter(v => v.monto > 0).map((v, vi) => (
-                                  <div key={`va-${vi}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
-                                    <span className="text-white/35">Vale{v.tercero ? ` — ${v.tercero}` : ''}</span>
-                                    <span className="font-medium" style={{ color: '#C3B1E1' }}>{fmtFull(v.monto)}</span>
-                                  </div>
-                                ))}
-                                {liq.cortesias?.filter(ct => ct.monto > 0).map((ct, ci) => (
-                                  <div key={`co-${ci}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
-                                    <span className="text-white/35">Cortesia{ct.concepto ? ` — ${ct.concepto}` : ''}</span>
-                                    <span className="font-medium text-white/50">{fmtFull(ct.monto)}</span>
-                                  </div>
-                                ))}
-                                {liq.gastos?.filter(g => g.monto > 0).map((g, gi) => (
-                                  <div key={`ga-${gi}`} className="flex items-center justify-between text-[11px] px-2 py-0.5 rounded bg-white/[0.02]">
-                                    <span className="text-white/35">Gasto{g.concepto ? ` — ${g.concepto}` : ''}</span>
-                                    <span className="font-medium text-white/50">{fmtFull(g.monto)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
 
                             <div className="ml-9 mt-1.5 flex justify-between text-xs">
                               <span className="text-white/30 font-medium">Saldo: <span className={`font-bold ${c.saldo === 0 ? 'text-[#60A5FA]' : c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(c.saldo)}</span></span>

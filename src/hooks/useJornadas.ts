@@ -72,9 +72,10 @@ export function useJornadas() {
         gastosDetalle: liq.gastos?.filter(g => g.monto > 0) || [],
       }
     })
-    await apiFetch(`${API_MANAGEMENT}/jornadas`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/jornadas`, {
       method: 'POST', body: JSON.stringify({ sesion: input.sesion, fecha: input.fecha, meseros }),
     })
+    if (!res.ok) throw new Error(`Error al guardar jornada: ${res.status}`)
     await fetchAll()
   }
 
@@ -98,9 +99,10 @@ export function useJornadas() {
         gastosDetalle: liq.gastos?.filter(g => g.monto > 0) || [],
       }
     })
-    await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, {
       method: 'PUT', body: JSON.stringify({ sesion: input.sesion, fecha: input.fecha, meseros }),
     })
+    if (!res.ok) throw new Error(`Error al actualizar jornada: ${res.status}`)
     await fetchAll()
   }
 

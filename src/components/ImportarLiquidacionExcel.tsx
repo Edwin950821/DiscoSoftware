@@ -287,13 +287,8 @@ function parseDateBlock(
   if (layout === 'liq-barra') {
     efectivoEntregado = getNum(sh, ROW_EFECTIVO_ENTREGADO, X + 2)
   } else {
-    const sumDatafono = transacciones.filter(t => t.tipo === 'Datafono').reduce((s, t) => s + t.monto, 0)
-    const sumQR = transacciones.filter(t => t.tipo === 'QR').reduce((s, t) => s + t.monto, 0)
-    const sumNequi = transacciones.filter(t => t.tipo === 'Nequi').reduce((s, t) => s + t.monto, 0)
-    const sumVales = vales.reduce((s, v) => s + v.monto, 0)
-    const sumCortesias = cortesias.reduce((s, c) => s + c.monto, 0)
-    const sumGastos = gastos.reduce((s, g) => s + g.monto, 0)
-    efectivoEntregado = totalVenta - sumDatafono - sumQR - sumNequi - sumVales - sumCortesias - sumGastos
+    // En liquidación diaria, el efectivo entregado se lee de la celda, no se calcula
+    efectivoEntregado = getNum(sh, ROW_EFECTIVO_ENTREGADO, X + 2)
   }
 
   const liq: LiquidacionTrabajador = {
