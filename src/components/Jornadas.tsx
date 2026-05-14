@@ -174,7 +174,7 @@ export default function Jornadas() {
                 className={`mt-2 w-full py-2 rounded-lg text-[11px] font-semibold transition-all
                   ${selectedDia.festivo
                     ? 'bg-[#FFE66D]/10 text-[#FFE66D] border border-[#FFE66D]/20'
-                    : 'bg-white/5 text-white/30 border border-white/[0.07]'
+                    : 'bg-[#FFE66D]/5 text-[#FFE66D]/40 border border-[#FFE66D]/15'
                   }`}>
                 {selectedDia.festivo ? 'Quitar festivo' : 'Marcar como festivo'}
               </button>
