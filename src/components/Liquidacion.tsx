@@ -1894,7 +1894,7 @@ function calcSemanaData(jornadasSem: Jornada[]) {
       tMap.get(liq.nombre)!.totales[i] = liq.lineas?.reduce((s, l) => s + l.total, 0) || liq.totalVenta || 0
     }
   }
-  const resumen = jornadasSem.map(j => { const c = calcularCuadreDia(j.liquidaciones || []); return { sesion: j.sesion, fecha: j.fecha, id: j.id, ventaTotal: c.totalVendido, gastos: c.totalGastos, datafono: c.pagos.Datafono, qr: c.pagos.QR, nequi: c.pagos.Nequi, vales: c.pagos.Vales, cortesias: c.totalCortesias, efectivo: c.pagos.Efectivo, totalRecibido: c.totalRecibido, saldo: c.saldo } })
+  const resumen = jornadasSem.map(j => { const c = calcularCuadreDia(j.liquidaciones || []); return { sesion: j.sesion, fecha: j.fecha, id: j.id, ventaTotal: c.totalVendido, gastos: c.totalGastos, datafono: c.pagos.Datafono, qr: c.pagos.QR, nequi: c.pagos.Nequi, vales: c.pagos.Vales, cortesias: c.totalCortesias, efectivo: c.pagos.Efectivo, totalRecibido: c.totalRecibido, saldo: c.totalVendido - c.totalRecibido } })
   const s = (k: string) => resumen.reduce((a, r) => a + ((r as any)[k] || 0), 0)
   const tot = { ventaTotal: s('ventaTotal'), gastos: s('gastos'), datafono: s('datafono'), qr: s('qr'), nequi: s('nequi'), vales: s('vales'), cortesias: s('cortesias'), efectivo: s('efectivo'), totalRecibido: s('totalRecibido'), saldo: s('saldo') }
   return { trabajadores: Array.from(tMap.values()), resumen, tot }
