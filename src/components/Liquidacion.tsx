@@ -2122,7 +2122,12 @@ function LiquidacionSemana({
                 const mesLabel = new Date(Number(ay), Number(am) - 1, 1).toLocaleDateString('es-CO', { month: 'short' })
                 grupoLabel = `SI-${siInfo.si} ${mesLabel}`
               } else {
-                grupoLabel = `S${gi + 1}`
+                // Grupo sin SI configurado: mostrar rango de fechas
+                const dt0 = new Date(f0 + 'T12:00:00')
+                const dtN = new Date(fN + 'T12:00:00')
+                const mes = dt0.toLocaleDateString('es-CO', { month: 'short' })
+                const d0 = dt0.getDate(), dN = dtN.getDate()
+                grupoLabel = d0 === dN ? `${d0} ${mes}` : `${d0}–${dN} ${mes}`
               }
               return (
                 <div key={gi} className="flex flex-col gap-1.5">
@@ -2163,12 +2168,15 @@ function LiquidacionSemana({
                 <thead>
                   <tr>
                     <th className="text-center text-white/30 py-2 pr-4 font-bold border-b border-[#CDA52F]/20 text-[10px] uppercase tracking-wider">Meseros</th>
-                    {jornadasVisibles.map(j => (
-                      <th key={j.id} className="text-right text-white/50 py-2 px-3 font-medium border-b border-[#CDA52F]/20 min-w-[100px]">
-                        <div className="text-[11px] font-bold">{j.sesion}</div>
-                        <div className="text-[9px] text-white/25 font-normal">{j.fecha}</div>
-                      </th>
-                    ))}
+                    {jornadasVisibles.map(j => {
+                      const info = getSiInfoParaFecha(j.fecha)
+                      return (
+                        <th key={j.id} className="text-right text-white/50 py-2 px-3 font-medium border-b border-[#CDA52F]/20 min-w-[100px]">
+                          <div className="text-[11px] font-bold">{info ? `SI-${info.si}` : j.sesion}</div>
+                          <div className="text-[9px] text-white/25 font-normal">{j.fecha}</div>
+                        </th>
+                      )
+                    })}
                     {jornadasVisibles.length > 1 && (
                       <th className="text-center text-[#CDA52F] py-2 px-3 font-bold border-b border-[#CDA52F]/20 bg-white/[0.02]">LIQ. SEMANA</th>
                     )}
@@ -2214,11 +2222,10 @@ function LiquidacionSemana({
                   <tr>
                     <th className="text-left text-white/40 py-2 pr-4 font-medium border-b border-white/10"></th>
                     {jornadasVisibles.map(j => {
-                      const dt = new Date(j.fecha + 'T12:00:00')
+                      const info = getSiInfoParaFecha(j.fecha)
                       return (
                         <th key={j.id} className="text-right text-white/40 py-2 px-3 font-medium border-b border-white/10 min-w-[100px]">
-                          <div>{diasNombre[dt.getDay()]} {dt.getDate()}</div>
-                          <div className="text-[9px] text-white/20 font-normal">{j.sesion}</div>
+                          {info ? `SI-${info.si}` : j.sesion}
                         </th>
                       )
                     })}
