@@ -2241,7 +2241,7 @@ function LiquidacionSemana({
                     const total = ((d.tot as any)[f.key] as number) ?? 0
                     const isTotal = f.key === 'totalRecibido'
                     return (
-                      <tr key={f.key} className={`border-b border-white/[0.04] ${isTotal ? 'border-t-2 border-[#4ECDC4]/30' : ''}`}>
+                      <tr key={f.key} className={isTotal ? 'border-t-2 border-[#4ECDC4]/30' : 'border-b border-white/[0.04]'}>
                         <td className={`py-2 pr-4 ${isTotal ? 'font-bold text-white/70 text-sm' : 'text-white/40'}`}>{f.label}</td>
                         {vals.map((v, i) => (
                           <td key={i} className={`text-right py-2 px-3 ${isTotal ? 'font-bold' : ''}`} style={{ color: f.color || 'rgba(255,255,255,0.5)' }}>
