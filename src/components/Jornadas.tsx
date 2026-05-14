@@ -170,12 +170,13 @@ export default function Jornadas() {
             const dow = new Date(selectedDia.fecha + 'T12:00:00').getDay()
             if (dow === 6 || dow === 0 || dow === 1) return null
             return (
-              <button onClick={() => toggleFestivo(selectedDia.fecha)}
-                className={`mt-2 w-full py-2 rounded-lg text-[11px] font-semibold transition-all
-                  ${selectedDia.festivo
-                    ? 'bg-[#FFE66D]/10 text-[#FFE66D] border border-[#FFE66D]/20'
-                    : 'bg-[#FFE66D]/5 text-[#FFE66D]/40 border border-[#FFE66D]/15'
-                  }`}>
+              <button
+                onClick={() => toggleFestivo(selectedDia.fecha)}
+                className="mt-2 w-full py-2 rounded-lg text-[11px] font-semibold transition-all"
+                style={selectedDia.festivo
+                  ? { background: 'rgba(255,230,109,0.10)', color: '#FFE66D', border: '1px solid rgba(255,230,109,0.25)' }
+                  : { background: 'rgba(255,230,109,0.07)', color: 'rgba(255,230,109,0.55)', border: '1px solid rgba(255,230,109,0.22)' }
+                }>
                 {selectedDia.festivo ? 'Quitar festivo' : 'Marcar como festivo'}
               </button>
             )
