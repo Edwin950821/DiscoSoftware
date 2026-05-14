@@ -835,31 +835,26 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                     <div className="space-y-3 mb-4">
                       {j.liquidaciones?.map((liq, i) => {
                         const c = calcularLiquidacion(liq)
+                        const efectivo = liq.efectivoEntregado > 0 ? liq.efectivoEntregado : c.efectivo
                         return (
                           <div key={i} className="p-3 rounded-lg bg-white/[0.03]">
                             <div className="flex items-center gap-2 mb-2">
                               <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold"
                                 style={{ backgroundColor: liq.color + '33', color: liq.color }}>{liq.avatar}</div>
-                              <span className="text-xs text-white/70 flex-1">{liq.nombre}</span>
-                              <span className="text-xs text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span>
+                              <span className="text-xs font-semibold text-white/80 flex-1">{liq.nombre}</span>
                             </div>
-                            <div className="flex flex-wrap gap-1.5 ml-9">
-                              {liq.efectivoEntregado > 0 && (
-                                <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#CDA52F22', color: '#CDA52F' }}>
-                                  Efectivo: {fmtFull(liq.efectivoEntregado)}
-                                </span>
-                              )}
-                              {c.totalDatafono > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#A8E6CF22', color: '#A8E6CF' }}>Datafono: {fmtFull(c.totalDatafono)}</span>}
-                              {c.totalQR > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#4ECDC422', color: '#4ECDC4' }}>QR: {fmtFull(c.totalQR)}</span>}
-                              {c.totalNequi > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#FFE66D22', color: '#FFE66D' }}>Nequi: {fmtFull(c.totalNequi)}</span>}
-                              {c.totalVales > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ backgroundColor: '#C3B1E122', color: '#C3B1E1' }}>Vales: {fmtFull(c.totalVales)}</span>}
-                              {c.totalCortesias > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Cort: {fmtFull(c.totalCortesias)}</span>}
-                              {c.totalGastos > 0 && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/5 text-white/40">Gast: {fmtFull(c.totalGastos)}</span>}
-                            </div>
-
-
-                            <div className="ml-9 mt-1.5 flex justify-between text-xs">
-                              <span className="text-white/30 font-medium">Saldo: <span className={`font-bold ${c.saldo === 0 ? 'text-[#60A5FA]' : c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(c.saldo)}</span></span>
+                            <div className="ml-9 space-y-0.5 text-xs">
+                              <div className="flex justify-between"><span className="text-white/40">Total Venta</span><span className="text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span></div>
+                              {c.totalDatafono > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Datafono</span><span className="text-white/50">-{fmtFull(c.totalDatafono)}</span></div>}
+                              {c.totalQR > 0 && <div className="flex justify-between"><span className="text-white/30">(-) QR</span><span className="text-white/50">-{fmtFull(c.totalQR)}</span></div>}
+                              {c.totalNequi > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Nequi</span><span className="text-white/50">-{fmtFull(c.totalNequi)}</span></div>}
+                              {c.totalVales > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Vales</span><span className="text-white/50">-{fmtFull(c.totalVales)}</span></div>}
+                              {c.totalCortesias > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Cortesias</span><span className="text-white/50">-{fmtFull(c.totalCortesias)}</span></div>}
+                              {c.totalGastos > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Gastos</span><span className="text-white/50">-{fmtFull(c.totalGastos)}</span></div>}
+                              <div className="flex justify-between pt-1 mt-1 border-t border-white/[0.07]">
+                                <span className="font-bold text-[#CDA52F]">EFECTIVO</span>
+                                <span className="font-bold text-[#CDA52F]">{fmtFull(efectivo)}</span>
+                              </div>
                             </div>
                           </div>
                         )

@@ -17,12 +17,14 @@ export function useProductos() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   const agregar = async (p: Omit<Producto, 'id'>) => {
-    await apiFetch(`${API_MANAGEMENT}/productos`, { method: 'POST', body: JSON.stringify(p) })
+    const res = await apiFetch(`${API_MANAGEMENT}/productos`, { method: 'POST', body: JSON.stringify(p) })
+    if (!res.ok) throw new Error(`Error al crear producto: ${res.status}`)
     await fetchAll()
   }
 
   const actualizar = async (id: string, data: Partial<Producto>) => {
-    await apiFetch(`${API_MANAGEMENT}/productos/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+    const res = await apiFetch(`${API_MANAGEMENT}/productos/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+    if (!res.ok) throw new Error(`Error al actualizar producto: ${res.status}`)
     await fetchAll()
   }
 

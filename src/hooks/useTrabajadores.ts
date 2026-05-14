@@ -20,15 +20,18 @@ export function useTrabajadores() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   const agregar = async (t: Omit<Trabajador, 'id'> & { username?: string; password?: string }) => {
-    await apiFetch(`${API_MANAGEMENT}/meseros`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/meseros`, {
       method: 'POST',
       body: JSON.stringify({ nombre: t.nombre, color: t.color, avatar: t.avatar, activo: t.activo, username: t.username, password: t.password }),
     })
+    if (!res.ok) throw new Error(`Error al crear trabajador: ${res.status}`)
     await fetchAll()
   }
 
   const actualizar = async (id: string, data: Partial<Trabajador>) => {
-    setTrabajadores(prev => prev.map(t => t.id === id ? { ...t, ...data } : t))
+    const res = await apiFetch(`${API_MANAGEMENT}/meseros/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+    if (!res.ok) throw new Error(`Error al actualizar trabajador: ${res.status}`)
+    await fetchAll()
   }
 
   const eliminar = async (id: string) => {

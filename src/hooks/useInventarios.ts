@@ -30,18 +30,20 @@ export function useInventarios() {
     }))
 
   const guardar = async (inventario: InventarioInput) => {
-    await apiFetch(`${API_MANAGEMENT}/inventarios`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/inventarios`, {
       method: 'POST',
       body: JSON.stringify({ fecha: inventario.fecha, lineas: mapLineas(inventario.lineas), totalGeneral: inventario.totalGeneral }),
     })
+    if (!res.ok) throw new Error(`Error al guardar inventario: ${res.status}`)
     await fetchAll()
   }
 
   const actualizar = async (id: string, inventario: InventarioInput) => {
-    await apiFetch(`${API_MANAGEMENT}/inventarios/${id}`, {
+    const res = await apiFetch(`${API_MANAGEMENT}/inventarios/${id}`, {
       method: 'PUT',
       body: JSON.stringify({ fecha: inventario.fecha, lineas: mapLineas(inventario.lineas), totalGeneral: inventario.totalGeneral }),
     })
+    if (!res.ok) throw new Error(`Error al actualizar inventario: ${res.status}`)
     await fetchAll()
   }
 

@@ -37,6 +37,7 @@ interface ParsedJornada {
 interface ProductoFaltante {
   nombre: string
   precioEstimado: number
+  skip?: boolean
 }
 
 interface TrabajadorNoMatch {
@@ -57,7 +58,6 @@ const LIQ_BARRA_NAME = 'Liq Barra'
 const ROW_DATE = 0
 const ROW_PRODUCT_FIRST = 2
 const ROW_PRODUCT_LAST = 51
-const ROW_EFECTIVO = 54
 const ROW_EFECTIVO_ENTREGADO = 55
 const ROW_PAGOS_FIRST = 59
 const ROW_PAGOS_LAST = 64
@@ -198,7 +198,7 @@ function parseDateBlock(
       continue
     }
     if (!m.producto) {
-      problemas.push({ nombreExcel, motivo: 'No existe en BD' })
+      problemas.push({ nombreExcel, motivo: 'No existe en el sistema' })
       productosFaltantes.push({ nombre: nombreExcel, precioEstimado: precioUnit })
       continue
     }
@@ -283,13 +283,7 @@ function parseDateBlock(
     }
   }
 
-  let efectivoEntregado: number
-  if (layout === 'liq-barra') {
-    efectivoEntregado = getNum(sh, ROW_EFECTIVO_ENTREGADO, X + 2)
-  } else {
-    // En liquidación diaria, el efectivo entregado se lee de la celda, no se calcula
-    efectivoEntregado = getNum(sh, ROW_EFECTIVO_ENTREGADO, X + 2)
-  }
+  const efectivoEntregado = getNum(sh, ROW_EFECTIVO_ENTREGADO, X + 2)
 
   const liq: LiquidacionTrabajador = {
     trabajadorId: trabajador?.id || '',
@@ -324,8 +318,11 @@ export function parseLiquidacionWorkbook(
   const porFecha = new Map<string, ParsedJornada>()
 
   for (const sheetName of wb.SheetNames) {
-    const isBarra = sheetName === LIQ_BARRA_NAME
     const isDiaria = sheetName.startsWith(LIQ_DIARIA_PREFIX)
+    const isBarra = !isDiaria && (
+      sheetName === LIQ_BARRA_NAME ||
+      sheetName.toLowerCase().startsWith('liq ')
+    )
     if (!isBarra && !isDiaria) continue
 
     const sh = wb.Sheets[sheetName]
@@ -333,7 +330,7 @@ export function parseLiquidacionWorkbook(
 
     const layout: Layout = isBarra ? 'liq-barra' : 'liq-diaria'
     const trabajadorNombreExcel = String(sh[XLSX.utils.encode_cell({ r: 0, c: 1 })]?.v || '').trim()
-      || sheetName.replace(/^Liq Diaria\s+/i, '').trim()
+      || sheetName.replace(/^Liq\s*(Diaria\s+)?/i, '').trim()
       || (isBarra ? 'Barra' : 'Sin nombre')
 
     const overrideId = trabajadorOverrides[trabajadorNombreExcel]
@@ -404,6 +401,7 @@ interface Props {
 }
 
 const NUEVO_TRABAJADOR = '__nuevo__'
+const SKIP_TRABAJADOR = '__skip__'
 
 export default function ImportarLiquidacionExcel({ productos, trabajadores, jornadasExistentes, agregarTrabajador, agregarProducto, onImport, onClose }: Props) {
   const [parsing, setParsing] = useState(false)
@@ -457,7 +455,7 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
   useEffect(() => {
     if (!needsReparse || !fileBufRef.current) return
     const trabsPresentes = trabajadoresCreados.every(nombre =>
-      trabajadores.some(t => normalizar(t.nombre) === normalizar(nombre))
+      trabajadores.some(t => normalizarMesero(t.nombre) === normalizarMesero(nombre))
     )
     const prodsPresentes = productosCreados.every(nombre =>
       productos.some(p => normalizar(p.nombre) === normalizar(nombre))
@@ -506,6 +504,7 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
     const overrides: Record<string, string> = { ...trabajadorOverrides }
     for (const t of parsed.trabajadoresNoEncontrados) {
       const choice = trabajadorMapping[t.nombreExcel] ?? NUEVO_TRABAJADOR
+      if (choice === SKIP_TRABAJADOR) continue
       if (choice === NUEVO_TRABAJADOR) {
         nuevos.push({ excelName: t.nombreExcel, nombre: capitalizar(t.nombreExcel) })
       } else {
@@ -529,6 +528,13 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
     }
     setTrabajadoresCreados(prev => [...prev, ...creados])
     setTrabajadorOverrides(overrides)
+    setTrabajadorMapping(prev => {
+      const next = { ...prev }
+      for (const key of Object.keys(next)) {
+        if (next[key] === SKIP_TRABAJADOR) delete next[key]
+      }
+      return next
+    })
     setAplicandoMapeo(false)
     setNeedsReparse(true)
   }
@@ -542,16 +548,17 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
     s + j.liquidaciones.reduce((s2, l) =>
       s2 + l.lineasProblema.length + (l.trabajadorMatch ? 0 : 1), 0), 0)
 
-  const updateProductoEditable = (idx: number, campo: 'nombre' | 'precioEstimado', valor: string) => {
+  const updateProductoEditable = (idx: number, campo: 'nombre' | 'precioEstimado' | 'skip', valor: string | boolean) => {
     setProductosEditables(prev => prev.map((p, i) => {
       if (i !== idx) return p
+      if (campo === 'skip') return { ...p, skip: valor as boolean }
       if (campo === 'precioEstimado') return { ...p, precioEstimado: Number(valor) || 0 }
-      return { ...p, nombre: valor }
+      return { ...p, nombre: valor as string }
     }))
   }
 
   const handleCrearProductos = async () => {
-    const validos = productosEditables.filter(p => p.nombre.trim() && p.precioEstimado > 0)
+    const validos = productosEditables.filter(p => !p.skip && p.nombre.trim() && p.precioEstimado > 0)
     if (validos.length === 0) {
       setError('Cada producto necesita un nombre y un precio mayor a 0.')
       return
@@ -569,6 +576,7 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
       }
     }
     setProductosCreados(prev => [...prev, ...creados])
+    setProductosEditables(prev => prev.filter(p => !p.skip))
     setCreandoProductos(false)
     setNeedsReparse(true)
   }
@@ -674,9 +682,30 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
             <p className="text-[11px] text-white/40 mb-3">Archivo: <span className="text-white/70">{fileName}</span></p>
 
             {trabajadoresCreados.length > 0 && (
-              <div className="mb-3 p-3 rounded-lg bg-[#4ECDC4]/10 border border-[#4ECDC4]/20">
-                <p className="text-[11px] text-[#4ECDC4] font-medium mb-1">Trabajadores creados automáticamente:</p>
-                <p className="text-[11px] text-white/60">{trabajadoresCreados.join(', ')}</p>
+              <div className="mb-3 p-3 rounded-lg bg-[#4ECDC4]/10 border border-[#4ECDC4]/20 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] text-[#4ECDC4] font-medium mb-1">Trabajadores creados automáticamente:</p>
+                  <p className="text-[11px] text-white/60">{trabajadoresCreados.join(', ')}</p>
+                </div>
+                <div className="shrink-0 w-8 h-8 rounded-full bg-[#4ECDC4]/20 border border-[#4ECDC4]/40 flex items-center justify-center">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ECDC4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+              </div>
+            )}
+
+            {productosCreados.length > 0 && (
+              <div className="mb-3 p-3 rounded-lg bg-[#4ECDC4]/10 border border-[#4ECDC4]/20 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] text-[#4ECDC4] font-medium mb-1">Productos creados automáticamente:</p>
+                  <p className="text-[11px] text-white/60">{productosCreados.join(', ')}</p>
+                </div>
+                <div className="shrink-0 w-8 h-8 rounded-full bg-[#4ECDC4]/20 border border-[#4ECDC4]/40 flex items-center justify-center">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ECDC4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
               </div>
             )}
 
@@ -685,40 +714,86 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
                 <p className="text-[11px] text-[#FFE66D] font-medium mb-1">
                   {parsed.trabajadoresNoEncontrados.length} mesero{parsed.trabajadoresNoEncontrados.length === 1 ? '' : 's'} del Excel sin coincidencia exacta
                 </p>
-                <p className="text-[10px] text-white/60 mb-2">
-                  Elegí a qué mesero del sistema corresponde cada uno (o "Crear nuevo" para agregarlo). Las sugerencias ya vienen pre-seleccionadas cuando el sistema detectó algo similar.
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] text-white/60">
+                    Desmarcá para ignorar ese mesero y no importar sus ventas.
+                  </p>
+                  {(() => {
+                    const todos = parsed.trabajadoresNoEncontrados
+                    const todosActivos = todos.every(t => (trabajadorMapping[t.nombreExcel] ?? NUEVO_TRABAJADOR) !== SKIP_TRABAJADOR)
+                    const algunoActivo = todos.some(t => (trabajadorMapping[t.nombreExcel] ?? NUEVO_TRABAJADOR) !== SKIP_TRABAJADOR)
+                    const toggleTodos = () => {
+                      const next: Record<string, string> = { ...trabajadorMapping }
+                      if (algunoActivo) {
+                        todos.forEach(t => { next[t.nombreExcel] = SKIP_TRABAJADOR })
+                      } else {
+                        todos.forEach(t => { next[t.nombreExcel] = NUEVO_TRABAJADOR })
+                      }
+                      setTrabajadorMapping(next)
+                    }
+                    return (
+                      <label className="flex items-center gap-1.5 cursor-pointer shrink-0 ml-2 select-none">
+                        <input
+                          type="checkbox"
+                          checked={todosActivos}
+                          ref={el => { if (el) el.indeterminate = !todosActivos && algunoActivo }}
+                          onChange={toggleTodos}
+                          disabled={aplicandoMapeo}
+                          className="w-3.5 h-3.5 accent-[#FFE66D] cursor-pointer"
+                        />
+                        <span className="text-[11px] text-[#FFE66D]/70 hover:text-[#FFE66D]">
+                          {algunoActivo ? 'Desmarcar todos' : 'Marcar todos'}
+                        </span>
+                      </label>
+                    )
+                  })()}
+                </div>
                 <div className="space-y-1 max-h-48 overflow-auto pr-1">
                   {parsed.trabajadoresNoEncontrados.map(t => {
                     const choice = trabajadorMapping[t.nombreExcel] ?? NUEVO_TRABAJADOR
+                    const isSkipped = choice === SKIP_TRABAJADOR
                     return (
-                      <div key={t.nombreExcel} className="flex items-center gap-2">
-                        <span className="text-[11px] text-white/70 flex-1 truncate" title={t.nombreExcel}>
+                      <div key={t.nombreExcel} className={`flex items-center gap-2 transition-opacity ${isSkipped ? 'opacity-40' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={!isSkipped}
+                          onChange={e => updateTrabajadorMapping(t.nombreExcel, e.target.checked ? NUEVO_TRABAJADOR : SKIP_TRABAJADOR)}
+                          disabled={aplicandoMapeo}
+                          className="w-3.5 h-3.5 accent-[#FFE66D] cursor-pointer shrink-0"
+                        />
+                        <span className={`text-[11px] shrink-0 truncate max-w-[120px] ${isSkipped ? 'line-through text-white/30' : 'text-white/70'}`} title={t.nombreExcel}>
                           {t.nombreExcel}
                         </span>
-                        <span className="text-white/30 text-[11px]">→</span>
-                        <select
-                          value={choice}
-                          onChange={e => updateTrabajadorMapping(t.nombreExcel, e.target.value)}
-                          disabled={aplicandoMapeo}
-                          className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50"
-                        >
-                          <option value={NUEVO_TRABAJADOR}>— Crear nuevo "{capitalizar(t.nombreExcel)}" —</option>
-                          {trabajadores.map(tr => (
-                            <option key={tr.id} value={tr.id}>
-                              {tr.nombre}{t.sugerenciaId === tr.id ? ' (sugerido)' : ''}
-                            </option>
-                          ))}
-                        </select>
+                        {!isSkipped && (
+                          <>
+                            <span className="text-white/30 text-[11px] shrink-0">→</span>
+                            <select
+                              value={choice}
+                              onChange={e => updateTrabajadorMapping(t.nombreExcel, e.target.value)}
+                              disabled={aplicandoMapeo}
+                              className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50"
+                            >
+                              <option value={NUEVO_TRABAJADOR}>— Crear nuevo "{capitalizar(t.nombreExcel)}" —</option>
+                              {trabajadores.map(tr => (
+                                <option key={tr.id} value={tr.id}>
+                                  {tr.nombre}{t.sugerenciaId === tr.id ? ' (sugerido)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+                        {isSkipped && <span className="text-[11px] text-white/30 italic">ignorar — no se importará</span>}
                       </div>
                     )
                   })}
                 </div>
-                <div className="flex justify-end mt-2">
-                  <Btn size="sm" variant="primary" onClick={handleAplicarMapeo} disabled={aplicandoMapeo}>
-                    {aplicandoMapeo ? 'Aplicando...' : 'Aplicar mapeo'}
-                  </Btn>
-                </div>
+                {parsed.trabajadoresNoEncontrados.some(t => (trabajadorMapping[t.nombreExcel] ?? NUEVO_TRABAJADOR) !== SKIP_TRABAJADOR) && (
+                  <div className="flex justify-end mt-2">
+                    <Btn size="sm" variant="primary" onClick={handleAplicarMapeo} disabled={aplicandoMapeo}>
+                      {aplicandoMapeo ? 'Aplicando...' : 'Aplicar mapeo'}
+                    </Btn>
+                  </div>
+                )}
               </div>
             )}
 
@@ -727,18 +802,50 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
                 <p className="text-[11px] text-[#FFE66D] font-medium mb-1">
                   {productosEditables.length} producto{productosEditables.length === 1 ? '' : 's'} del Excel no existe{productosEditables.length === 1 ? '' : 'n'} en este negocio
                 </p>
-                <p className="text-[10px] text-white/60 mb-2">
-                  Revisá el nombre y el precio, después tocá "Crear productos" para agregarlos. Los productos sin precio o sin nombre se omiten.
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] text-white/60">
+                    Revisá nombre y precio. Desmarcá los que no querés crear.
+                  </p>
+                  {(() => {
+                    const todosActivos = productosEditables.every(p => !p.skip)
+                    const algunoActivo = productosEditables.some(p => !p.skip)
+                    const toggleTodos = () => {
+                      const nuevoSkip = algunoActivo
+                      setProductosEditables(prev => prev.map(p => ({ ...p, skip: nuevoSkip })))
+                    }
+                    return (
+                      <label className="flex items-center gap-1.5 cursor-pointer shrink-0 ml-2 select-none">
+                        <input
+                          type="checkbox"
+                          checked={todosActivos}
+                          ref={el => { if (el) el.indeterminate = !todosActivos && algunoActivo }}
+                          onChange={toggleTodos}
+                          disabled={creandoProductos}
+                          className="w-3.5 h-3.5 accent-[#FFE66D] cursor-pointer"
+                        />
+                        <span className="text-[11px] text-[#FFE66D]/70 hover:text-[#FFE66D]">
+                          {algunoActivo ? 'Desmarcar todos' : 'Marcar todos'}
+                        </span>
+                      </label>
+                    )
+                  })()}
+                </div>
                 <div className="space-y-1 max-h-48 overflow-auto pr-1">
                   {productosEditables.map((p, i) => (
-                    <div key={i} className="flex items-center gap-2">
+                    <div key={i} className={`flex items-center gap-2 transition-opacity ${p.skip ? 'opacity-40' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={!p.skip}
+                        onChange={e => updateProductoEditable(i, 'skip', !e.target.checked)}
+                        disabled={creandoProductos}
+                        className="w-3.5 h-3.5 accent-[#FFE66D] cursor-pointer shrink-0"
+                      />
                       <input
                         type="text"
                         value={p.nombre}
                         onChange={e => updateProductoEditable(i, 'nombre', e.target.value)}
-                        className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50"
-                        disabled={creandoProductos}
+                        className={`flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-[#FFE66D]/50 ${p.skip ? 'text-white/30 line-through' : 'text-white'}`}
+                        disabled={creandoProductos || !!p.skip}
                       />
                       <input
                         type="number"
@@ -746,17 +853,19 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
                         value={p.precioEstimado || ''}
                         onChange={e => updateProductoEditable(i, 'precioEstimado', e.target.value)}
                         placeholder="Precio"
-                        className="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#FFE66D]/50 tabular-nums text-right"
-                        disabled={creandoProductos}
+                        className={`w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-[#FFE66D]/50 tabular-nums text-right ${p.skip ? 'text-white/30' : 'text-white'}`}
+                        disabled={creandoProductos || !!p.skip}
                       />
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-end mt-2">
-                  <Btn size="sm" variant="primary" onClick={handleCrearProductos} disabled={creandoProductos}>
-                    {creandoProductos ? 'Creando...' : `Crear ${productosEditables.filter(p => p.nombre.trim() && p.precioEstimado > 0).length} productos`}
-                  </Btn>
-                </div>
+                {productosEditables.some(p => !p.skip) && (
+                  <div className="flex justify-end mt-2">
+                    <Btn size="sm" variant="primary" onClick={handleCrearProductos} disabled={creandoProductos}>
+                      {creandoProductos ? 'Creando...' : `Crear ${productosEditables.filter(p => !p.skip && p.nombre.trim() && p.precioEstimado > 0).length} productos`}
+                    </Btn>
+                  </div>
+                )}
               </div>
             )}
 
@@ -860,19 +969,55 @@ export default function ImportarLiquidacionExcel({ productos, trabajadores, jorn
                   </div>
                 )
               })}
-              {duplicadas.map(j => (
-                <div key={j.fecha} className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02] opacity-60">
-                  <span className="w-4 h-4 rounded bg-white/[0.05] shrink-0 flex items-center justify-center">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/30"><polyline points="20 6 9 17 4 12" /></svg>
-                  </span>
-                  <span className="text-sm text-white/40 flex-1">{j.fecha}</span>
-                  <span className="text-[11px] text-white/30 shrink-0">ya existe — saltar</span>
-                </div>
-              ))}
+              {duplicadas.map(j => {
+                const isExpanded = !!expandidas[`dup_${j.fecha}`]
+                const liqsValidas = j.liquidaciones.filter(l => l.trabajadorMatch)
+                const sinTrabajador = j.liquidaciones.filter(l => !l.trabajadorMatch).length
+                return (
+                  <div key={j.fecha} className="rounded-lg bg-white/[0.02] border border-white/[0.03]">
+                    <div className="flex items-center gap-2 p-2">
+                      <span className="w-4 h-4 rounded bg-white/[0.05] shrink-0 flex items-center justify-center">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/30"><polyline points="20 6 9 17 4 12" /></svg>
+                      </span>
+                      <span className="text-sm text-white/40 flex-1">{j.fecha}</span>
+                      <span className="text-[11px] text-white/30 shrink-0">
+                        {liqsValidas.length} trab.
+                        {sinTrabajador > 0 && <span className="text-[#FF5050]/60"> · {sinTrabajador} sin match</span>}
+                        {' '}— ya existe
+                      </span>
+                      <button
+                        type="button"
+                        onClick={e => { e.preventDefault(); setExpandidas(s => ({ ...s, [`dup_${j.fecha}`]: !s[`dup_${j.fecha}`] })) }}
+                        className="text-white/40 hover:text-white/70 text-xs px-1 shrink-0"
+                      >
+                        {isExpanded ? '▼' : '▶'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="px-3 pb-2 pt-1 border-t border-white/[0.03] space-y-0.5">
+                        {j.liquidaciones.map((l, i) => (
+                          <div key={i} className="flex items-center gap-2 py-0.5 text-[11px]">
+                            <span className={`shrink-0 ${l.trabajadorMatch ? 'text-white/30' : 'text-[#FF5050]/50'}`}>{l.trabajadorMatch ? '✓' : '✗'}</span>
+                            <span className="text-white/30 truncate">
+                              {l.trabajadorNombreExcel}
+                              {l.trabajadorMatch && l.trabajadorMatch.nombre !== l.trabajadorNombreExcel && (
+                                <span className="text-white/20"> → {l.trabajadorMatch.nombre}</span>
+                              )}
+                            </span>
+                            <span className="text-white/25 ml-auto shrink-0 tabular-nums">
+                              ${l.liquidacion.totalVenta.toLocaleString('es-CO')} · {l.liquidacion.lineas.length} prods
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
             <p className="text-[10px] text-white/40 mb-3">
-              Click en ▶ para ver el detalle por trabajador y los productos que no matchearon.
+              Click en ▶ para ver los trabajadores y productos de cada fecha.
             </p>
 
             <div className="flex justify-end gap-2">
