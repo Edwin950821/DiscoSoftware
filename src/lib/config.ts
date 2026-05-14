@@ -77,10 +77,30 @@ export function limpiarNegocioGhostSiNoExiste(): boolean {
     if (!raw) return false
     const parsed = JSON.parse(raw)
     const activo = parsed?.negocioActivo
-    if (!activo) return false
     const negocios = Array.isArray(parsed.negocios) ? parsed.negocios : []
-    const existe = negocios.some((n: { id: string }) => n.id === activo)
-    if (!existe) {
+    const rol = parsed?.rol
+
+    if (rol && rol !== 'SUPER' && rol !== 'MESERO') {
+      const valido = activo && negocios.some((n: { id: string }) => n.id === activo)
+      if (!valido) {
+        if (negocios.length > 0) {
+          // Auto-sanar: usar el primer negocio disponible
+          parsed.negocioActivo = negocios[0].id
+          const serialized = JSON.stringify(parsed)
+          sessionStorage.setItem('monastery_session', serialized)
+          localStorage.setItem('monastery_session', serialized)
+        } else {
+          // Sin negocios en sesión: forzar re-login para obtener datos frescos
+          sessionStorage.removeItem('monastery_session')
+          localStorage.removeItem('monastery_session')
+        }
+        return true
+      }
+      return false
+    }
+
+    // SUPER: limpiar negocioActivo si apunta a un negocio que no está en la lista
+    if (activo && !negocios.some((n: { id: string }) => n.id === activo)) {
       parsed.negocioActivo = null
       const serialized = JSON.stringify(parsed)
       sessionStorage.setItem('monastery_session', serialized)
