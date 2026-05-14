@@ -1,115 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Card } from './ui/Card'
-import { guardarCalendarioMes, cargarCalendarioMes, fmtFecha } from '../lib/apertura'
+import { guardarCalendarioMes, cargarCalendarioMes, fmtFecha, generarCalendario } from '../lib/apertura'
+import type { DiaInfo, Semana } from '../lib/apertura'
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const MESES_SHORT = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
 const DIAS_HEADER = ['L','M','M','J','V','S','D']
 const DIAS_HEADER_LG = ['LUN','MAR','MIÉ','JUE','VIE','SÁB','DOM']
-
-interface DiaInfo {
-  fecha: string
-  dia: number
-  abre: boolean
-  si: number | null        // número de semana (1, 2, 3...)
-  siLabel: string          // "SI-1", "SI-2"...
-  festivo: boolean
-  needsAssignment: boolean // festivo mid-semana sin SI asignado
-}
-
-interface Semana {
-  si: number
-  label: string  // "SI-1"
-  dias: string[] // fechas en esta semana
-  rango: string  // "2 al 4 may"
-}
-
-function fmt(year: number, month: number, d: number): string {
-  return `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-}
-
-function generarCalendario(
-  year: number,
-  month: number,
-  festivos: Set<string>,
-  asignaciones: Record<string, number>
-): { dias: DiaInfo[]; semanas: Semana[] } {
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const dateToSi: Record<string, number> = {}
-  let siCount = 0
-
-  // Si el mes empieza en Sáb/Dom antes del primer Vie → pre-asignar a SI-1
-  const firstDayDow = new Date(year, month, 1).getDay()
-  if (firstDayDow === 6 || firstDayDow === 0) {
-    siCount = 1
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dow = new Date(year, month, d).getDay()
-      if (dow === 5) break // llegamos al primer viernes, el loop de abajo toma el resto
-      if (dow === 6 || dow === 0) dateToSi[fmt(year, month, d)] = 1
-      else if (festivos.has(fmt(year, month, d))) dateToSi[fmt(year, month, d)] = 1
-    }
-  }
-
-  // Anclar cada SI en su VIERNES: Vie (siempre) + Sáb + Dom + Lun (si festivo)
-  for (let d = 1; d <= daysInMonth; d++) {
-    if (new Date(year, month, d).getDay() !== 5) continue
-    siCount++
-    const si = siCount
-
-    // Viernes (siempre — es la noche de apertura)
-    dateToSi[fmt(year, month, d)] = si
-
-    // Sábado (siempre, d+1)
-    if (d + 1 <= daysInMonth) dateToSi[fmt(year, month, d + 1)] = si
-
-    // Domingo (siempre, d+2)
-    if (d + 2 <= daysInMonth) dateToSi[fmt(year, month, d + 2)] = si
-
-    // Lunes después (solo si festivo, d+3)
-    if (d + 3 <= daysInMonth && new Date(year, month, d + 3).getDay() === 1 && festivos.has(fmt(year, month, d + 3)))
-      dateToSi[fmt(year, month, d + 3)] = si
-  }
-
-  // Aplicar asignaciones manuales de festivos mid-semana
-  for (const [fecha, si] of Object.entries(asignaciones))
-    if (festivos.has(fecha)) dateToSi[fecha] = si
-
-  // Construir días
-  const dias: DiaInfo[] = []
-  for (let d = 1; d <= daysInMonth; d++) {
-    const fechaStr = fmt(year, month, d)
-    const festivo = festivos.has(fechaStr)
-    const si = dateToSi[fechaStr] ?? null
-    dias.push({
-      fecha: fechaStr, dia: d,
-      abre: si !== null,
-      si, siLabel: si ? `SI-${si}` : '',
-      festivo,
-      needsAssignment: festivo && si === null,
-    })
-  }
-
-  // Construir semanas con rango de días
-  const semanaMap: Record<number, number[]> = {}
-  dias.forEach(d => {
-    if (d.si !== null) {
-      if (!semanaMap[d.si]) semanaMap[d.si] = []
-      semanaMap[d.si].push(d.dia)
-    }
-  })
-  const semanas: Semana[] = Object.entries(semanaMap)
-    .map(([si, days]) => {
-      const sorted = [...days].sort((a, b) => a - b)
-      return {
-        si: Number(si), label: `SI-${si}`,
-        dias: sorted.map(d => fmt(year, month, d)),
-        rango: `${sorted[0]} al ${sorted[sorted.length - 1]} ${MESES_SHORT[month]}`,
-      }
-    })
-    .sort((a, b) => a.si - b.si)
-
-  return { dias, semanas }
-}
 
 export default function Jornadas() {
   const hoy = new Date()
@@ -331,7 +228,7 @@ export default function Jornadas() {
         if (!lastSI.dias.includes(lastDayOfMonth)) return null
 
         const nextMonthName = new Date(year, month + 1, 1).toLocaleDateString('es-CO', { month: 'long' })
-        const spilloverActivo = lastSI.dias.every(d => nextMonthSpillover.includes(d))
+        const spilloverActivo = nextMonthSpillover.length > 0
 
         const toggleSpillover = () => {
           if (spilloverActivo) {
