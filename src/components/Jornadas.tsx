@@ -23,7 +23,7 @@ function generarDiasMes(year: number, month: number, festivos: Set<string>): Dia
     const dow = date.getDay()
     const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
     const esFestivo = festivos.has(fechaStr)
-    const abre = esFestivo || dow === 6 || dow === 0 || dow === 1
+    const abre = dow === 6 || dow === 0 || esFestivo
     if (abre) acumulado++
     dias.push({ fecha: fechaStr, dia: d, abre, sesion: abre ? `SI-${acumulado}` : '', festivo: esFestivo, acumulado })
   }
