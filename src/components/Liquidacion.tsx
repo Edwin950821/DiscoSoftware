@@ -16,6 +16,7 @@ import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/
 import { useIsReadOnly } from '../hooks/useIsReadOnly'
 import { API_PEDIDOS, apiFetch } from '../lib/config'
 import { getInventarioDraft, setInventarioDraft, clearInventarioDraft } from '../lib/inventarioDraft'
+import { getSiParaFecha } from '../lib/apertura'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
 
@@ -1994,18 +1995,34 @@ function LiquidacionSemana({
 
   const fechasDisponibles = useMemo(() => {
     const sorted = [...jornadas].sort((a, b) => a.fecha.localeCompare(b.fecha))
-    const grupos: Jornada[][] = []
-    let curr: Jornada[] = []
+    // Agrupar por SI según Días de Apertura (localStorage)
+    const siMap: Record<string, Jornada[]> = {}
+    const sinSi: Jornada[] = []
     for (const j of sorted) {
-      if (curr.length > 0) {
-        const prev = new Date(curr[curr.length - 1].fecha + 'T12:00:00')
-        const cur = new Date(j.fecha + 'T12:00:00')
-        if ((cur.getTime() - prev.getTime()) / 86400000 > 2) { grupos.push(curr); curr = [] }
+      const si = getSiParaFecha(j.fecha)
+      if (si !== null) {
+        const key = `${j.fecha.slice(0, 7)}_SI${si}`
+        if (!siMap[key]) siMap[key] = []
+        siMap[key].push(j)
+      } else {
+        sinSi.push(j)
       }
-      curr.push(j)
     }
-    if (curr.length > 0) grupos.push(curr)
-    return grupos
+    const grupos = Object.values(siMap)
+    // Jornadas sin SI asignado se agrupan por proximidad (fallback)
+    if (sinSi.length > 0) {
+      let curr: Jornada[] = []
+      for (const j of sinSi) {
+        if (curr.length > 0) {
+          const prev = new Date(curr[curr.length - 1].fecha + 'T12:00:00')
+          const cur = new Date(j.fecha + 'T12:00:00')
+          if ((cur.getTime() - prev.getTime()) / 86400000 > 2) { grupos.push(curr); curr = [] }
+        }
+        curr.push(j)
+      }
+      if (curr.length > 0) grupos.push(curr)
+    }
+    return grupos.sort((a, b) => a[0].fecha.localeCompare(b[0].fecha))
   }, [jornadas])
 
   const jornadasVisibles = useMemo(() => {

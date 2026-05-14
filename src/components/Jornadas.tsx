@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card } from './ui/Card'
+import { guardarCalendarioMes, cargarCalendarioMes } from '../lib/apertura'
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const MESES_SHORT = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
@@ -123,6 +124,20 @@ export default function Jornadas() {
     prev: Semana | null
     next: Semana | null
   } | null>(null)
+
+  // Cargar festivos/asignaciones guardados al cambiar mes
+  useEffect(() => {
+    const saved = cargarCalendarioMes(year, month)
+    setFestivos(saved.festivos)
+    setAsignaciones(saved.asignaciones)
+    setSelected(null)
+    setPendingFestivo(null)
+  }, [year, month])
+
+  // Guardar cada vez que cambian festivos o asignaciones
+  useEffect(() => {
+    guardarCalendarioMes(year, month, festivos, asignaciones)
+  }, [year, month, festivos, asignaciones])
 
   const { dias, semanas } = useMemo(
     () => generarCalendario(year, month, festivos, asignaciones),
