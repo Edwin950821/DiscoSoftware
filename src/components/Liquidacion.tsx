@@ -2173,7 +2173,7 @@ function LiquidacionSemana({
                       return (
                         <th key={j.id} className="text-right text-white/50 py-2 px-3 font-medium border-b border-[#CDA52F]/20 min-w-[100px]">
                           <div className="text-[11px] font-bold">{info ? `SI-${info.si}` : j.sesion}</div>
-                          <div className="text-[9px] text-white/25 font-normal">{j.fecha}</div>
+                          <div className="text-[9px] text-white/25 font-normal">{j.fecha.split('-').reverse().join('/')}</div>
                         </th>
                       )
                     })}
@@ -2222,10 +2222,11 @@ function LiquidacionSemana({
                   <tr>
                     <th className="text-left text-white/40 py-2 pr-4 font-medium border-b border-white/10"></th>
                     {jornadasVisibles.map(j => {
-                      const dt = new Date(j.fecha + 'T12:00:00')
+                      const info = getSiInfoParaFecha(j.fecha)
                       return (
                         <th key={j.id} className="text-right text-white/40 py-2 px-3 font-medium border-b border-white/10 min-w-[100px]">
-                          {diasNombre[dt.getDay()]} {dt.getDate()}/{String(dt.getMonth() + 1).padStart(2, '0')}
+                          <div className="text-[11px] font-bold">{info ? `SI-${info.si}` : j.sesion}</div>
+                          <div className="text-[9px] text-white/25 font-normal">{j.fecha.split('-').reverse().join('/')}</div>
                         </th>
                       )
                     })}
@@ -2265,11 +2266,12 @@ function LiquidacionSemana({
             <p className="text-[10px] text-white/25 uppercase tracking-wider font-bold mb-3">Saldo</p>
             <div className="flex gap-3 flex-wrap">
               {d.resumen.map((r, i) => {
-                const dt = new Date(r.fecha + 'T12:00:00')
+                const info = getSiInfoParaFecha(r.fecha)
                 const color = r.saldo === 0 ? '#60A5FA' : r.saldo > 0 ? '#4ECDC4' : '#FF5050'
                 return (
                   <div key={i} className="flex-1 min-w-[80px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                    <p className="text-[10px] text-white/30 mb-1">{diasNombre[dt.getDay()]} {dt.getDate()}/{String(dt.getMonth() + 1).padStart(2, '0')}</p>
+                    <p className="text-[9px] font-bold text-white/50 mb-0.5">{info ? `SI-${info.si}` : r.sesion}</p>
+                    <p className="text-[9px] text-white/25 mb-1">{r.fecha.split('-').reverse().join('/')}</p>
                     <p className="text-base font-extrabold" style={{ color }}>{fmtCOP(r.saldo)}</p>
                   </div>
                 )
@@ -2278,7 +2280,7 @@ function LiquidacionSemana({
                 const color = d.tot.saldo === 0 ? '#60A5FA' : d.tot.saldo > 0 ? '#4ECDC4' : '#FF5050'
                 return (
                   <div className="flex-1 min-w-[80px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(205,165,47,0.06)', border: '1px solid rgba(205,165,47,0.15)' }}>
-                    <p className="text-[10px] text-[#CDA52F]/60 mb-1">Semana</p>
+                    <p className="text-[10px] text-[#CDA52F]/60 mb-1">Saldo Total</p>
                     <p className="text-base font-extrabold" style={{ color }}>{fmtCOP(d.tot.saldo)}</p>
                   </div>
                 )
