@@ -2111,11 +2111,14 @@ function LiquidacionSemana({
               const algunaSeleccionada = idsGrupo.some(id => jornadasSeleccionadas.includes(id))
               const isActive = semanaActiva === gi
               const semanaResaltada = (algunaSeleccionada && jornadasSeleccionadas.length > 0) || (isActive && jornadasSeleccionadas.length === 0)
+              const siNum = getSiParaFecha(f0)
+              const mesLabel = new Date(f0 + 'T12:00:00').toLocaleDateString('es-CO', { month: 'short' })
+              const grupoLabel = siNum !== null ? `SI-${siNum} ${mesLabel}` : `S${gi + 1}`
               return (
                 <div key={gi} className="flex flex-col gap-1.5">
                   <button onClick={() => toggleSemana(gi, idsGrupo)}
                     className={`text-[10px] font-bold tracking-wider transition-all ${todasSeleccionadas ? 'text-[#CDA52F]' : 'text-white/25 hover:text-[#CDA52F]/60'}`}>
-                    S{gi + 1}{todasSeleccionadas ? ' ✓' : ''}
+                    {grupoLabel}{todasSeleccionadas ? ' ✓' : ''}
                   </button>
                   <div className="flex items-center rounded-xl overflow-hidden border border-[#CDA52F]/25"
                     style={{ boxShadow: semanaResaltada ? '0 0 12px rgba(205,165,47,0.12)' : 'none' }}>
@@ -2200,9 +2203,15 @@ function LiquidacionSemana({
                 <thead>
                   <tr>
                     <th className="text-left text-white/40 py-2 pr-4 font-medium border-b border-white/10"></th>
-                    {jornadasVisibles.map(j => (
-                      <th key={j.id} className="text-right text-white/40 py-2 px-3 font-medium border-b border-white/10 min-w-[100px]">{j.sesion}</th>
-                    ))}
+                    {jornadasVisibles.map(j => {
+                      const dt = new Date(j.fecha + 'T12:00:00')
+                      return (
+                        <th key={j.id} className="text-right text-white/40 py-2 px-3 font-medium border-b border-white/10 min-w-[100px]">
+                          <div>{diasNombre[dt.getDay()]} {dt.getDate()}</div>
+                          <div className="text-[9px] text-white/20 font-normal">{j.sesion}</div>
+                        </th>
+                      )
+                    })}
                     {jornadasVisibles.length > 1 && (
                       <th className="text-center text-[#CDA52F] py-2 px-3 font-bold border-b border-white/10 bg-white/[0.02]">Total</th>
                     )}
