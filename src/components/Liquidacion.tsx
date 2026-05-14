@@ -2010,13 +2010,15 @@ function LiquidacionSemana({
     }
     const grupos = Object.values(siMap)
     // Jornadas sin SI asignado se agrupan por proximidad (fallback)
+    // Nunca cruza límite de mes: un cambio de mes siempre abre nuevo grupo
     if (sinSi.length > 0) {
       let curr: Jornada[] = []
       for (const j of sinSi) {
         if (curr.length > 0) {
-          const prev = new Date(curr[curr.length - 1].fecha + 'T12:00:00')
-          const cur = new Date(j.fecha + 'T12:00:00')
-          if ((cur.getTime() - prev.getTime()) / 86400000 > 2) { grupos.push(curr); curr = [] }
+          const last = curr[curr.length - 1]
+          const differentMonth = last.fecha.slice(0, 7) !== j.fecha.slice(0, 7)
+          const dayGap = (new Date(j.fecha + 'T12:00:00').getTime() - new Date(last.fecha + 'T12:00:00').getTime()) / 86400000
+          if (differentMonth || dayGap > 2) { grupos.push(curr); curr = [] }
         }
         curr.push(j)
       }
