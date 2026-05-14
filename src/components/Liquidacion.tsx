@@ -2222,10 +2222,10 @@ function LiquidacionSemana({
                   <tr>
                     <th className="text-left text-white/40 py-2 pr-4 font-medium border-b border-white/10"></th>
                     {jornadasVisibles.map(j => {
-                      const info = getSiInfoParaFecha(j.fecha)
+                      const dt = new Date(j.fecha + 'T12:00:00')
                       return (
                         <th key={j.id} className="text-right text-white/40 py-2 px-3 font-medium border-b border-white/10 min-w-[100px]">
-                          {info ? `SI-${info.si}` : j.sesion}
+                          {diasNombre[dt.getDay()]} {dt.getDate()}/{String(dt.getMonth() + 1).padStart(2, '0')}
                         </th>
                       )
                     })}
@@ -2255,63 +2255,38 @@ function LiquidacionSemana({
                       </tr>
                     )
                   })}
-                  {(() => {
-                    const saldoVals = d.resumen.map(r => r.saldo)
-                    const saldoTotal = d.tot.saldo
-                    return (
-                      <tr className="border-t-2 border-white/20">
-                        <td className="py-3 pr-4 font-bold text-sm" style={{ color: saldoTotal === 0 ? '#4ECDC4' : saldoTotal > 0 ? '#4ECDC4' : '#FF5050' }}>Saldo</td>
-                        {saldoVals.map((v, i) => (
-                          <td key={i} className="text-right py-3 px-3 font-bold" style={{ color: v === 0 ? '#60A5FA' : v > 0 ? '#4ECDC4' : '#FF5050' }}>
-                            {fmtCOP(v)}
-                          </td>
-                        ))}
-                        {jornadasVisibles.length > 1 && (
-                          <td className="text-center py-3 px-3 font-bold text-sm bg-white/[0.02]" style={{ color: saldoTotal === 0 ? '#60A5FA' : saldoTotal > 0 ? '#4ECDC4' : '#FF5050' }}>
-                            {fmtCOP(saldoTotal)}
-                          </td>
-                        )}
-                      </tr>
-                    )
-                  })()}
                 </tbody>
               </table>
             </div>
           </Card>
 
-          {!isReadOnly && (
-            <Card className="border-white/[0.07]">
-              <p className="text-[10px] text-white/30 uppercase tracking-wider font-bold mb-3">Acciones por Jornada</p>
-              <div className="space-y-1.5">
-                {jornadasVisibles.map(j => (
-                  <div key={j.id} className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02] border border-white/[0.05]">
-                    <span className="text-[11px] font-bold text-[#CDA52F] shrink-0">{j.sesion}</span>
-                    <span className="text-[11px] text-white/40 shrink-0">{j.fecha}</span>
-                    <span className="text-[11px] text-white/30 ml-2 shrink-0">{j.liquidaciones.length} trab.</span>
-                    <span className="text-[11px] font-semibold text-[#FFE66D] ml-auto shrink-0">{fmtCOP(j.totalVendido)}</span>
-                    <Btn size="sm" variant="ghost" onClick={() => onEditar(j)} className="flex items-center gap-1.5 shrink-0">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      Editar
-                    </Btn>
-                    {confirmDelete === j.id ? (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[11px] text-[#FF5050]">Seguro?</span>
-                        <Btn size="sm" variant="danger" onClick={() => { handleEliminar(j.id); setConfirmDelete(null) }}>Si</Btn>
-                        <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
-                      </div>
-                    ) : (
-                      <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(j.id)} className="flex items-center gap-1.5 shrink-0">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                        Eliminar
-                      </Btn>
-                    )}
+          {/* Saldo por jornada */}
+          <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <p className="text-[10px] text-white/25 uppercase tracking-wider font-bold mb-3">Saldo</p>
+            <div className="flex gap-3 flex-wrap">
+              {d.resumen.map((r, i) => {
+                const dt = new Date(r.fecha + 'T12:00:00')
+                const color = r.saldo === 0 ? '#60A5FA' : r.saldo > 0 ? '#4ECDC4' : '#FF5050'
+                return (
+                  <div key={i} className="flex-1 min-w-[80px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    <p className="text-[10px] text-white/30 mb-1">{diasNombre[dt.getDay()]} {dt.getDate()}/{String(dt.getMonth() + 1).padStart(2, '0')}</p>
+                    <p className="text-base font-extrabold" style={{ color }}>{fmtCOP(r.saldo)}</p>
                   </div>
-                ))}
-              </div>
-            </Card>
-          )}
+                )
+              })}
+              {jornadasVisibles.length > 1 && (() => {
+                const color = d.tot.saldo === 0 ? '#60A5FA' : d.tot.saldo > 0 ? '#4ECDC4' : '#FF5050'
+                return (
+                  <div className="flex-1 min-w-[80px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(205,165,47,0.06)', border: '1px solid rgba(205,165,47,0.15)' }}>
+                    <p className="text-[10px] text-[#CDA52F]/60 mb-1">Semana</p>
+                    <p className="text-base font-extrabold" style={{ color }}>{fmtCOP(d.tot.saldo)}</p>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
 
-          <div className="flex justify-end mt-4">
+          <div className="flex justify-end mt-2">
             <Btn variant="ghost" onClick={() => printSemanal(jornadasVisibles, d)} className="flex items-center gap-1.5">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Imprimir Liquidacion
             </Btn>
