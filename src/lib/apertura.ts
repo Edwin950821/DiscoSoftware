@@ -47,13 +47,13 @@ export function generarCalendario(
     }
   }
 
-  // Anclar cada SI en su VIERNES: Vie (si festivo) + Sáb + Dom + Lun (si festivo)
+  // Anclar cada SI en su VIERNES: Vie (siempre) + Sáb + Dom + Lun (si festivo)
   for (let d = 1; d <= daysInMonth; d++) {
     if (new Date(year, month, d).getDay() !== 5) continue
     siCount++
     const si = siCount
 
-    if (festivos.has(fmtFecha(year, month, d))) dateToSi[fmtFecha(year, month, d)] = si
+    dateToSi[fmtFecha(year, month, d)] = si
     if (d + 1 <= daysInMonth) dateToSi[fmtFecha(year, month, d + 1)] = si
     if (d + 2 <= daysInMonth) dateToSi[fmtFecha(year, month, d + 2)] = si
     if (d + 3 <= daysInMonth && new Date(year, month, d + 3).getDay() === 1 && festivos.has(fmtFecha(year, month, d + 3)))

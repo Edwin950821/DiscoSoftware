@@ -50,14 +50,14 @@ function generarCalendario(
     }
   }
 
-  // Anclar cada SI en su VIERNES: Vie (si festivo) + Sáb + Dom + Lun (si festivo)
+  // Anclar cada SI en su VIERNES: Vie (siempre) + Sáb + Dom + Lun (si festivo)
   for (let d = 1; d <= daysInMonth; d++) {
     if (new Date(year, month, d).getDay() !== 5) continue
     siCount++
     const si = siCount
 
-    // Viernes (solo si festivo)
-    if (festivos.has(fmt(year, month, d))) dateToSi[fmt(year, month, d)] = si
+    // Viernes (siempre — es la noche de apertura)
+    dateToSi[fmt(year, month, d)] = si
 
     // Sábado (siempre, d+1)
     if (d + 1 <= daysInMonth) dateToSi[fmt(year, month, d + 1)] = si
@@ -355,10 +355,10 @@ export default function Jornadas() {
             ))}
           </div>
 
-          {/* Botón festivo: oculto solo para Sáb y Dom */}
+          {/* Botón festivo: oculto para Vie, Sáb y Dom (siempre abren) */}
           {(() => {
             const dow = new Date(selectedDia.fecha + 'T12:00:00').getDay()
-            if (dow === 6 || dow === 0) return null
+            if (dow === 5 || dow === 6 || dow === 0) return null
 
             if (selectedDia.needsAssignment) {
               return (
