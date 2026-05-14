@@ -95,7 +95,7 @@ export default function Login({ onLogin }: LoginProps) {
 
         <div className="relative z-10 text-center px-12">
           <img src="/assets/M05.png" alt="Monastery Club" className="h-16 object-contain mx-auto mb-6" />
-          <p className="text-white/50 text-lg">La mejor experiencia en Baranoa</p>
+          <p className="text-white/50 text-lg">Gestión inteligente de tu negocio</p>
           <div className="mt-8 w-24 h-[1px] mx-auto bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent" />
         </div>
       </div>
