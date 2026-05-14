@@ -16,7 +16,7 @@ import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/
 import { useIsReadOnly } from '../hooks/useIsReadOnly'
 import { API_PEDIDOS, apiFetch } from '../lib/config'
 import { getInventarioDraft, setInventarioDraft, clearInventarioDraft } from '../lib/inventarioDraft'
-import { getSiParaFecha } from '../lib/apertura'
+import { getSiInfoParaFecha } from '../lib/apertura'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
 
@@ -1995,20 +1995,22 @@ function LiquidacionSemana({
 
   const fechasDisponibles = useMemo(() => {
     const sorted = [...jornadas].sort((a, b) => a.fecha.localeCompare(b.fecha))
-    // Agrupar por SI según Días de Apertura (localStorage)
-    const siMap: Record<string, Jornada[]> = {}
+    // Agrupar por SI según Días de Apertura (localStorage).
+    // getSiInfoParaFecha devuelve { si, anoMes } donde anoMes puede ser el mes
+    // siguiente si el usuario marcó spillover cross-mes.
+    const siMap: Record<string, { jornadas: Jornada[]; anoMes: string; si: number }> = {}
     const sinSi: Jornada[] = []
     for (const j of sorted) {
-      const si = getSiParaFecha(j.fecha)
-      if (si !== null) {
-        const key = `${j.fecha.slice(0, 7)}_SI${si}`
-        if (!siMap[key]) siMap[key] = []
-        siMap[key].push(j)
+      const info = getSiInfoParaFecha(j.fecha)
+      if (info !== null) {
+        const key = `${info.anoMes}_SI${info.si}`
+        if (!siMap[key]) siMap[key] = { jornadas: [], anoMes: info.anoMes, si: info.si }
+        siMap[key].jornadas.push(j)
       } else {
         sinSi.push(j)
       }
     }
-    const grupos = Object.values(siMap)
+    const grupos: Jornada[][] = Object.values(siMap).map(g => g.jornadas)
     // Jornadas sin SI asignado se agrupan por proximidad (fallback)
     // Nunca cruza límite de mes: un cambio de mes siempre abre nuevo grupo
     if (sinSi.length > 0) {
@@ -2113,9 +2115,15 @@ function LiquidacionSemana({
               const algunaSeleccionada = idsGrupo.some(id => jornadasSeleccionadas.includes(id))
               const isActive = semanaActiva === gi
               const semanaResaltada = (algunaSeleccionada && jornadasSeleccionadas.length > 0) || (isActive && jornadasSeleccionadas.length === 0)
-              const siNum = getSiParaFecha(f0)
-              const mesLabel = new Date(f0 + 'T12:00:00').toLocaleDateString('es-CO', { month: 'short' })
-              const grupoLabel = siNum !== null ? `SI-${siNum} ${mesLabel}` : `S${gi + 1}`
+              const siInfo = getSiInfoParaFecha(f0)
+              let grupoLabel: string
+              if (siInfo !== null) {
+                const [ay, am] = siInfo.anoMes.split('-')
+                const mesLabel = new Date(Number(ay), Number(am) - 1, 1).toLocaleDateString('es-CO', { month: 'short' })
+                grupoLabel = `SI-${siInfo.si} ${mesLabel}`
+              } else {
+                grupoLabel = `S${gi + 1}`
+              }
               return (
                 <div key={gi} className="flex flex-col gap-1.5">
                   <button onClick={() => toggleSemana(gi, idsGrupo)}

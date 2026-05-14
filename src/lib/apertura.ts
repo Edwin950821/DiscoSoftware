@@ -1,5 +1,5 @@
 // Lógica compartida de Días de Apertura.
-// Persiste los festivos y asignaciones de SI en localStorage por mes,
+// Persiste los festivos, asignaciones de SI y spillover cross-mes en localStorage,
 // para que la Liquidación Semanal pueda usarlos al agrupar jornadas.
 
 export interface DiaInfo {
@@ -109,12 +109,14 @@ export function guardarCalendarioMes(
   year: number,
   month: number,
   festivos: Set<string>,
-  asignaciones: Record<string, number>
+  asignaciones: Record<string, number>,
+  nextMonthSpillover: string[] = []
 ): void {
   try {
     localStorage.setItem(storageKey(year, month), JSON.stringify({
       festivos: [...festivos],
       asignaciones,
+      nextMonthSpillover,
     }))
   } catch { /* noop */ }
 }
@@ -122,32 +124,57 @@ export function guardarCalendarioMes(
 export function cargarCalendarioMes(
   year: number,
   month: number
-): { festivos: Set<string>; asignaciones: Record<string, number> } {
+): { festivos: Set<string>; asignaciones: Record<string, number>; nextMonthSpillover: string[] } {
   try {
     const raw = localStorage.getItem(storageKey(year, month))
-    if (!raw) return { festivos: new Set(), asignaciones: {} }
+    if (!raw) return { festivos: new Set(), asignaciones: {}, nextMonthSpillover: [] }
     const parsed = JSON.parse(raw)
     return {
       festivos: new Set<string>(parsed.festivos ?? []),
       asignaciones: parsed.asignaciones ?? {},
+      nextMonthSpillover: parsed.nextMonthSpillover ?? [],
     }
   } catch {
-    return { festivos: new Set(), asignaciones: {} }
+    return { festivos: new Set(), asignaciones: {}, nextMonthSpillover: [] }
   }
 }
 
-// Dado una fecha "YYYY-MM-DD", devuelve el número de SI al que pertenece
-// según la configuración guardada en localStorage para ese mes.
-// Devuelve null si no hay datos o la fecha no tiene SI asignado.
-export function getSiParaFecha(fecha: string): number | null {
+// Devuelve { si, anoMes } para una fecha dada.
+// Si la fecha está en el nextMonthSpillover del mes actual, la asigna al
+// primer SI del mes siguiente (agrupación cross-mes explícita del usuario).
+export function getSiInfoParaFecha(fecha: string): { si: number; anoMes: string } | null {
   try {
     const parts = fecha.split('-')
     const year = Number(parts[0])
     const month = Number(parts[1]) - 1
-    const { festivos, asignaciones } = cargarCalendarioMes(year, month)
+
+    const { festivos, asignaciones, nextMonthSpillover } = cargarCalendarioMes(year, month)
+
+    // Si el usuario movió este día al mes siguiente, asignarlo al primer SI de ese mes
+    if (nextMonthSpillover.includes(fecha)) {
+      const nextYear = month === 11 ? year + 1 : year
+      const nextMon  = month === 11 ? 0 : month + 1
+      const nextData = cargarCalendarioMes(nextYear, nextMon)
+      const { semanas: nextSemanas } = generarCalendario(nextYear, nextMon, nextData.festivos, nextData.asignaciones)
+      const firstSi = nextSemanas.length > 0 ? nextSemanas[0].si : null
+      if (firstSi !== null) {
+        const anoMes = `${nextYear}-${String(nextMon + 1).padStart(2, '0')}`
+        return { si: firstSi, anoMes }
+      }
+    }
+
+    // Lookup normal en el mes actual
     const { dias } = generarCalendario(year, month, festivos, asignaciones)
-    return dias.find(d => d.fecha === fecha)?.si ?? null
+    const si = dias.find(d => d.fecha === fecha)?.si ?? null
+    if (si !== null) return { si, anoMes: `${parts[0]}-${parts[1]}` }
+
+    return null
   } catch {
     return null
   }
+}
+
+// Wrapper simple para compatibilidad (solo devuelve el número de SI)
+export function getSiParaFecha(fecha: string): number | null {
+  return getSiInfoParaFecha(fecha)?.si ?? null
 }

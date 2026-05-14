@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Card } from './ui/Card'
-import { guardarCalendarioMes, cargarCalendarioMes } from '../lib/apertura'
+import { guardarCalendarioMes, cargarCalendarioMes, fmtFecha } from '../lib/apertura'
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const MESES_SHORT = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
@@ -124,20 +124,22 @@ export default function Jornadas() {
     prev: Semana | null
     next: Semana | null
   } | null>(null)
+  const [nextMonthSpillover, setNextMonthSpillover] = useState<string[]>([])
 
-  // Cargar festivos/asignaciones guardados al cambiar mes
+  // Cargar festivos/asignaciones/spillover guardados al cambiar mes
   useEffect(() => {
     const saved = cargarCalendarioMes(year, month)
     setFestivos(saved.festivos)
     setAsignaciones(saved.asignaciones)
+    setNextMonthSpillover(saved.nextMonthSpillover)
     setSelected(null)
     setPendingFestivo(null)
   }, [year, month])
 
-  // Guardar cada vez que cambian festivos o asignaciones
+  // Guardar cada vez que cambia cualquier configuración del mes
   useEffect(() => {
-    guardarCalendarioMes(year, month, festivos, asignaciones)
-  }, [year, month, festivos, asignaciones])
+    guardarCalendarioMes(year, month, festivos, asignaciones, nextMonthSpillover)
+  }, [year, month, festivos, asignaciones, nextMonthSpillover])
 
   const { dias, semanas } = useMemo(
     () => generarCalendario(year, month, festivos, asignaciones),
@@ -319,6 +321,50 @@ export default function Jornadas() {
           </button>
         </div>
       )}
+
+      {/* Mover última SI al mes siguiente (cross-month) */}
+      {(() => {
+        if (semanas.length === 0) return null
+        const lastSI = semanas[semanas.length - 1]
+        const daysInMonth = new Date(year, month + 1, 0).getDate()
+        const lastDayOfMonth = fmtFecha(year, month, daysInMonth)
+        if (!lastSI.dias.includes(lastDayOfMonth)) return null
+
+        const nextMonthName = new Date(year, month + 1, 1).toLocaleDateString('es-CO', { month: 'long' })
+        const spilloverActivo = lastSI.dias.every(d => nextMonthSpillover.includes(d))
+
+        const toggleSpillover = () => {
+          if (spilloverActivo) {
+            setNextMonthSpillover([])
+          } else {
+            setNextMonthSpillover(lastSI.dias)
+          }
+        }
+
+        return (
+          <div className="mt-3 rounded-xl p-3" style={{ border: '1px solid rgba(205,165,47,0.15)', background: 'rgba(205,165,47,0.03)' }}>
+            <p className="text-[9px] text-white/25 uppercase tracking-wider mb-2">Contabilizar en el mes siguiente</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold" style={{ color: spilloverActivo ? '#CDA52F' : 'rgba(255,255,255,0.5)' }}>
+                  {lastSI.label} → {nextMonthName}
+                </p>
+                <p className="text-[10px] text-white/25 mt-0.5">{lastSI.rango}</p>
+              </div>
+              <button
+                onClick={toggleSpillover}
+                className="shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all"
+                style={spilloverActivo
+                  ? { background: 'rgba(205,165,47,0.18)', color: '#CDA52F', border: '1px solid rgba(205,165,47,0.35)' }
+                  : { background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.3)', border: '1px solid rgba(255,255,255,0.08)' }
+                }
+              >
+                {spilloverActivo ? '✓ Movido' : 'Mover'}
+              </button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Detalle día seleccionado */}
       {selectedDia && !pendingFestivo && (
