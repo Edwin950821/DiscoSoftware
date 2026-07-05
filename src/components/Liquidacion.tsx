@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type {
   Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago,
   Inventario as InventarioType, LineaInventario, InventarioInput,
@@ -20,7 +20,7 @@ import { getSiInfoParaFecha } from '../lib/apertura'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
 
-/** Navegar entre filas con flechas ↑↓ como Excel (y evitar que cambien el número) */
+/** Navegar entre filas con flechas â†‘â†“ como Excel (y evitar que cambien el nÃºmero) */
 const handleTableArrowNav = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
   e.preventDefault()
@@ -84,7 +84,7 @@ function printHTML(title: string, body: string) {
   @media print { body { padding: 16px 20px; } @page { margin: 10mm; } }
 </style></head><body>
 ${body}
-<div class="footer"><span>Monastery Club</span> · Baranoa, Colombia · Sistema de Gestion</div>
+<div class="footer"><span>Monastery Club</span> Â· Baranoa, Colombia Â· Sistema de Gestion</div>
 <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();}}<\/script>
 </body></html>`)
   w.document.close()
@@ -94,7 +94,7 @@ function saldoColor(v: number) { return v === 0 ? 'blue' : v > 0 ? 'green' : 're
 
 function printJornada(j: Jornada) {
   const esperado = j.totalVendido - j.cortesias - j.gastos
-  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion Diaria — <span>${j.sesion}</span></h1><p class="sub">${j.fecha}</p></div></div>`
+  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion Diaria â€” <span>${j.sesion}</span></h1><p class="sub">${j.fecha}</p></div></div>`
 
   body += '<h2>Meseros</h2><table><thead><tr><th>Nombre</th><th>Venta</th><th>Efectivo</th><th>Datafono</th><th>QR</th><th>Nequi</th><th>Vales</th><th>Cortesias</th><th>Gastos</th><th>Saldo</th></tr></thead><tbody>'
   for (const liq of j.liquidaciones || []) {
@@ -128,7 +128,7 @@ function printJornada(j: Jornada) {
 function printSemanal(jornadasVisibles: Jornada[], d: ReturnType<typeof calcSemanaData>) {
   const f0 = jornadasVisibles[0]?.fecha || ''
   const fN = jornadasVisibles[jornadasVisibles.length - 1]?.fecha || ''
-  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion <span>Semanal</span></h1><p class="sub">${f0} al ${fN} · ${jornadasVisibles.length} jornadas</p></div></div>`
+  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion <span>Semanal</span></h1><p class="sub">${f0} al ${fN} Â· ${jornadasVisibles.length} jornadas</p></div></div>`
 
   const cols = jornadasVisibles.map(j => `<th>${j.sesion}<br/><span style="font-weight:normal;font-size:9px">${j.fecha}</span></th>`).join('')
   const hasTotal = jornadasVisibles.length > 1
@@ -240,6 +240,7 @@ interface Props {
   actualizarInventario: (id: string, inv: InventarioInput) => Promise<void>
   eliminarInventario: (id: string) => Promise<void>
   guardarComparativo: (comp: ComparativoInput) => Promise<void>
+  actualizarComparativo: (id: string, comp: ComparativoInput) => Promise<void>
   eliminarComparativo: (id: string) => Promise<void>
   initialTab?: 'inventario' | 'comparativo'
 }
@@ -249,7 +250,7 @@ export default function Liquidacion({
   agregarTrabajador, agregarProducto, eliminarTrabajador,
   guardarJornada, actualizarJornada, eliminarJornada,
   guardarInventario, actualizarInventario, eliminarInventario,
-  guardarComparativo, eliminarComparativo,
+  guardarComparativo, actualizarComparativo, eliminarComparativo,
   initialTab,
 }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab || 'liquidacion')
@@ -294,8 +295,10 @@ export default function Liquidacion({
   const [guardandoI, setGuardandoI] = useState(false)
 
 
-  const [modoComp, setModoComp] = useState<'lista' | 'nuevo'>('lista')
+  const [modoComp, setModoComp] = useState<'lista' | 'nuevo' | 'editar'>('lista')
+  const [editCompId, setEditCompId] = useState<string | null>(null)
   const [fechaComp, setFechaComp] = useState(new Date().toISOString().split('T')[0])
+  const [fechaHastaComp, setFechaHastaComp] = useState('')
   const [lineasComp, setLineasComp] = useState<LineaComparativo[]>([])
   const [expandedComp, setExpandedComp] = useState<string | null>(null)
   const [confirmDeleteC, setConfirmDeleteC] = useState<string | null>(null)
@@ -373,7 +376,7 @@ export default function Liquidacion({
   const handleTabDblClick = (id: string) => {
     const liq = liquidaciones.find(l => l.trabajadorId === id)
     if (!liq) return
-    if (!confirm(`${liq.nombre} — ¿Quitar de la liquidacion?`)) return
+    if (!confirm(`${liq.nombre} â€” Â¿Quitar de la liquidacion?`)) return
     toggleTrabajador(id)
   }
 
@@ -471,7 +474,14 @@ export default function Liquidacion({
   const editarJornada = (j: Jornada) => {
     setSesion(j.sesion)
     setFechaLiq(j.fecha)
-    const liqs = (j.liquidaciones || []).map(liq => ({ ...liq }))
+    const productosActivos = productos.filter(p => p.activo)
+    const liqs = (j.liquidaciones || []).map(liq => {
+      const idsExistentes = new Set((liq.lineas || []).map(l => l.productoId))
+      const lineasFaltantes = productosActivos
+        .filter(p => !idsExistentes.has(p.id))
+        .map(p => ({ productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad: 0, total: 0 }))
+      return { ...liq, lineas: [...(liq.lineas || []), ...lineasFaltantes] }
+    })
     _setLiquidaciones(liqs)
     setActiveTrabajadorId(liqs.length > 0 ? liqs[0].trabajadorId : null)
     setEditJornadaId(j.id)
@@ -523,12 +533,13 @@ export default function Liquidacion({
     const activos = productos.filter(p => p.activo)
     if (activos.length === 0) return []
     const ultimo = inventarios.length > 0 ? inventarios[0] : null
+    // Respetar el orden de productos (ya viene ordenado por campo 'orden')
     return activos.map(p => {
       const ant = ultimo?.lineas.find(l => l.productoId === p.id)
       const invInicial = ant?.invFisico ?? 0
       const saldo = invInicial
       return { productoId: p.id, nombre: p.nombre, valorUnitario: p.precio, salidas: 0, invInicial, entradas: 0, invFisico: 0, saldo, total: saldo * p.precio }
-    }).sort((a, b) => b.valorUnitario - a.valorUnitario)
+    })
   }
 
   const crearNuevoInv = () => { setLineasInv(generarLineasInv()); setFechaInv(new Date().toISOString().split('T')[0]); setEditInvId(null); setModoInv('nuevo') }
@@ -543,6 +554,29 @@ export default function Liquidacion({
   useEffect(() => {
     if (modoInv === 'nuevo' && lineasInv.length === 0 && productos.length > 0) setLineasInv(generarLineasInv())
   }, [modoInv, productos, lineasInv.length])
+
+  // Sincronizar orden de líneas de inventario cuando cambia el orden de productos
+  // Preserva los datos ya ingresados
+  useEffect(() => {
+    if ((modoInv !== 'nuevo' && modoInv !== 'editar') || productos.length === 0 || lineasInv.length === 0) return
+    const activos = productos.filter(p => p.activo)
+    const mapLineas = new Map(lineasInv.map(l => [l.productoId, l]))
+    // Construir nuevo array en el orden actual de productos, preservando datos existentes
+    const reordenadas: LineaInventario[] = []
+    for (const p of activos) {
+      const existente = mapLineas.get(p.id)
+      if (existente) reordenadas.push(existente)
+    }
+    // Preservar líneas que ya no están en productos activos (no perder datos)
+    for (const l of lineasInv) {
+      if (!activos.find(p => p.id === l.productoId)) reordenadas.push(l)
+    }
+    // Solo actualizar si el orden efectivamente cambió
+    const cambio = reordenadas.length !== lineasInv.length ||
+      reordenadas.some((l, i) => l.productoId !== lineasInv[i]?.productoId)
+    if (cambio) _setLineasInv(reordenadas)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productos])
 
   const actualizarLineaInv = (idx: number, campo: 'salidas' | 'invInicial' | 'entradas' | 'invFisico', valor: string) => {
     setLineasInv(prev => prev.map((l, i) => {
@@ -589,18 +623,90 @@ export default function Liquidacion({
 
 
   const fechasComp = new Set(comparativos.map(c => c.fecha))
-  const fechaCompDuplicada = fechasComp.has(fechaComp)
 
-  const generarLineasComp = () => {
+  function rangosSeSolapan(aDesde: string, aHasta: string, bDesde: string, bHasta: string) {
+    return aDesde <= bHasta && bDesde <= aHasta
+  }
+
+  const fechaCompDuplicada = false
+    ? false
+    : comparativos.some(c => rangosSeSolapan(fechaComp, fechaHastaComp || fechaComp, c.fecha, c.fechaHasta ?? c.fecha))
+
+  const generarLineasCompPeriodo = (desde: string, hasta: string) => {
     const activos = productos.filter(p => p.activo)
     if (activos.length === 0) return []
 
-    return activos.map(p => ({
-      productoId: p.id, nombre: p.nombre, conteo: 0, tiquets: 0, diferencia: 0
-    })).sort((a, b) => a.nombre.localeCompare(b.nombre))
+    const invBase = inventarios
+      .filter(i => i.fecha <= hasta)
+      .sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
+
+    console.log('DEBUG hasta:', hasta, '→ invBase encontrado:', invBase?.fecha ?? 'NINGUNO')
+
+    // Respetar el orden de productos (ya viene ordenado por campo 'orden')
+    return activos.map(p => {
+      const lineaInv = invBase?.lineas.find(l => l.productoId === p.id)
+      const conteo = lineaInv?.saldo ?? 0
+
+      let tiquets = 0
+      const jornadasEnRango = jornadas.filter(j => j.fecha >= desde && j.fecha <= hasta)
+      for (const jornada of jornadasEnRango) {
+        for (const liq of jornada.liquidaciones ?? []) {
+          const lineaLiq = liq.lineas?.find(l => l.productoId === p.id)
+          if (lineaLiq) tiquets += lineaLiq.cantidad
+        }
+      }
+
+      const diferencia = tiquets - conteo
+      return { productoId: p.id, nombre: p.nombre, conteo, tiquets, diferencia }
+    })
   }
 
-  const crearNuevoComp = () => { setLineasComp(generarLineasComp()); setFechaComp(new Date().toISOString().split('T')[0]); setModoComp('nuevo') }
+
+  const editarComp = (comp: ComparativoType) => {
+    setFechaComp(comp.fecha)
+    setFechaHastaComp(comp.fechaHasta ?? comp.fecha)
+    setLineasComp(comp.lineas.map(l => ({ ...l })))
+    setEditCompId(comp.id)
+    setModoComp('editar')
+  }
+
+  const handleChangeRangoComp = (desde: string, hasta: string) => {
+    setFechaComp(desde)
+    setFechaHastaComp(hasta)
+    setLineasComp(generarLineasCompPeriodo(desde, hasta)) // auto-suma, pisa lo que hubiera
+  }
+
+  // Sincronizar orden de líneas de comparativo cuando cambia el orden de productos
+  // Preserva los datos ya ingresados
+  useEffect(() => {
+    if ((modoComp !== 'nuevo' && modoComp !== 'editar') || productos.length === 0 || lineasComp.length === 0) return
+    const activos = productos.filter(p => p.activo)
+    const mapLineas = new Map(lineasComp.map(l => [l.productoId, l]))
+    const reordenadas: LineaComparativo[] = []
+    for (const p of activos) {
+      const existente = mapLineas.get(p.id)
+      if (existente) reordenadas.push(existente)
+    }
+    // Preservar líneas de productos ya no activos
+    for (const l of lineasComp) {
+      if (!activos.find(p => p.id === l.productoId)) reordenadas.push(l)
+    }
+    const cambio = reordenadas.length !== lineasComp.length ||
+      reordenadas.some((l, i) => l.productoId !== lineasComp[i]?.productoId)
+    if (cambio) setLineasComp(reordenadas)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productos])
+
+
+  const crearNuevoComp = () => {
+    const fecha = new Date().toISOString().split('T')[0]
+    setFechaComp(fecha)
+    setFechaHastaComp(fecha)
+    setLineasComp(generarLineasCompPeriodo(fecha, fecha))
+    setModoComp('nuevo')
+  }
+
+
 
   const actualizarLineaComp = (idx: number, campo: 'conteo' | 'tiquets', valor: string) => {
     setLineasComp(prev => prev.map((l, i) => {
@@ -618,10 +724,17 @@ export default function Liquidacion({
     if (fechaCompDuplicada || guardandoC) return
     setGuardandoC(true)
     try {
-      await guardarComparativo({ fecha: fechaComp, lineas: lineasComp, totalConteo: totalConteoComp, totalTiquets: totalTiquetsComp })
+      const totalDiferenciaComp = lineasComp.reduce((s, l) => s + l.diferencia, 0)
+      const data = { fecha: fechaComp, fechaHasta: fechaHastaComp || fechaComp, lineas: lineasComp, totalConteo: totalConteoComp, totalTiquets: totalTiquetsComp, totalDiferencia: totalDiferenciaComp }
+      if (modoComp === 'editar' && editCompId) {
+        await actualizarComparativo(editCompId, data)
+        setModalExito('Comparativo actualizado correctamente')
+      } else {
+        await guardarComparativo(data)
+        setModalExito('Comparativo guardado correctamente')
+      }
       setGuardandoC(false)
-      setModalExito('Comparativo guardado correctamente')
-      setTimeout(() => { setModalExito(null); setModoComp('lista') }, 2000)
+      setTimeout(() => { setModalExito(null); setModoComp('lista'); setEditCompId(null) }, 2000)
     } catch { setGuardandoC(false); alert('Error al guardar comparativo.') }
   }
 
@@ -712,15 +825,16 @@ export default function Liquidacion({
       )}
 
       {tab === 'comparativo' && (
-        modoComp === 'nuevo' ? (
-          <ComparativoNuevo fecha={fechaComp} setFecha={setFechaComp} lineas={lineasComp}
-            totalConteo={totalConteoComp} totalTiquets={totalTiquetsComp}
+        modoComp === 'nuevo' || modoComp === 'editar' ? (
+          <ComparativoNuevo fecha={fechaComp} fechaHasta={fechaHastaComp} onChangeRango={handleChangeRangoComp}
+            lineas={lineasComp} totalConteo={totalConteoComp} totalTiquets={totalTiquetsComp}
             actualizarLinea={actualizarLineaComp} guardando={guardandoC} fechaDuplicada={fechaCompDuplicada}
             handleGuardar={handleGuardarComp} onBack={() => setModoComp('lista')} />
         ) : (
           <ComparativoLista comparativos={comparativos} expandedId={expandedComp} setExpandedId={setExpandedComp}
             confirmDelete={confirmDeleteC} setConfirmDelete={setConfirmDeleteC}
-            handleEliminar={handleEliminarC} onNuevo={crearNuevoComp} productosLoaded={productos.length > 0}
+            handleEliminar={handleEliminarC} onNuevo={crearNuevoComp} onEditar={editarComp}
+            productosLoaded={productos.length > 0}
             productos={productos} guardarComparativo={guardarComparativo} />
         )
       )}
@@ -763,7 +877,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
     if (desde && j.fecha < desde) return false
     if (hasta && j.fecha > hasta) return false
     return true
-  })
+  }).sort((a, b) => b.fecha.localeCompare(a.fecha))
 
   const handleImport = async (toImport: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }[]) => {
     const fallidos: { fecha: string; error: string }[] = []
@@ -874,11 +988,11 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                     <div className="flex justify-end gap-2 mt-3">
                       {!isReadOnly && (
                         <Btn size="sm" variant="ghost" onClick={() => onEditar(j)} className="flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>Editar
                         </Btn>
                       )}
                       <Btn size="sm" variant="ghost" onClick={() => printJornada(j)} className="flex items-center gap-1.5">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Imprimir
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>Imprimir
                       </Btn>
                       {!isReadOnly && (confirmDelete === j.id ? (
                         <div className="flex items-center gap-2">
@@ -887,7 +1001,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                           <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>Cancelar</Btn>
                         </div>
                       ) : (
-                        <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(j.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
+                        <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(j.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>Eliminar</Btn>
                       ))}
                     </div>
                   </div>
@@ -1099,7 +1213,7 @@ function LiquidacionNueva({
                 <div className="flex items-center justify-between cursor-pointer" onClick={() => setTicketsExpanded(!ticketsExpanded)}>
                   <div className="flex items-center gap-2">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
                     </svg>
                     <p className="text-xs text-[#D4AF37] font-medium uppercase tracking-wider">
                       Tickets del dia ({pedidosTrabajador.length})
@@ -1110,7 +1224,7 @@ function LiquidacionNueva({
                     <button onClick={(e) => { e.stopPropagation(); fetchPedidosHoy() }}
                       className="p-1 rounded-md hover:bg-white/5 text-white/30 hover:text-white/50 transition-colors" title="Actualizar">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                       </svg>
                     </button>
                     <Chevron expanded={ticketsExpanded} />
@@ -1129,10 +1243,9 @@ function LiquidacionNueva({
                           <div className="flex items-center justify-between px-3 py-2 bg-white/[0.02]">
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] font-bold text-white/60">{cuenta.mesaNombre}</span>
-                              <span className="text-[10px] text-white/30">— {cuenta.nombreCliente}</span>
-                              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${
-                                cuenta.estado === 'PAGADA' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-[#FFE66D]/15 text-[#FFE66D]'
-                              }`}>{cuenta.estado}</span>
+                              <span className="text-[10px] text-white/30">â€” {cuenta.nombreCliente}</span>
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${cuenta.estado === 'PAGADA' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-[#FFE66D]/15 text-[#FFE66D]'
+                                }`}>{cuenta.estado}</span>
                             </div>
                             <span className="text-xs font-bold text-[#FFE66D]">{fmtCOP(cuenta.total)}</span>
                           </div>
@@ -1144,12 +1257,11 @@ function LiquidacionNueva({
                                   <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/[0.02] transition-colors"
                                     onClick={() => setExpandedTicket(isExpanded ? null : p.id)}>
                                     <span className="text-[10px] font-bold text-[#CDA52F]">#{p.ticketDia}</span>
-                                    <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${
-                                      p.estado === 'PENDIENTE' ? 'bg-[#FFE66D]/15 text-[#FFE66D]'
+                                    <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${p.estado === 'PENDIENTE' ? 'bg-[#FFE66D]/15 text-[#FFE66D]'
                                       : p.estado === 'DESPACHADO' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]'
-                                      : p.estado === 'CANCELADO' ? 'bg-[#FF5050]/15 text-[#FF5050]'
-                                      : 'bg-white/5 text-white/30'
-                                    }`}>{p.estado}</span>
+                                        : p.estado === 'CANCELADO' ? 'bg-[#FF5050]/15 text-[#FF5050]'
+                                          : 'bg-white/5 text-white/30'
+                                      }`}>{p.estado}</span>
                                     <span className="text-[10px] text-white/25">{p.lineas.length} items</span>
                                     <span className="text-[10px] text-white/20 ml-auto">
                                       {new Date(p.creadoEn).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
@@ -1157,7 +1269,7 @@ function LiquidacionNueva({
                                     <span className="text-xs text-white/60 font-medium">{fmtCOP(p.total)}</span>
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                                       className={`text-white/20 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
-                                      <polyline points="6 9 12 15 18 9"/>
+                                      <polyline points="6 9 12 15 18 9" />
                                     </svg>
                                   </div>
                                   {isExpanded && (
@@ -1194,19 +1306,18 @@ function LiquidacionNueva({
                               onClick={() => setExpandedTicket(isExpanded ? null : p.id)}>
                               <span className="text-[10px] font-bold text-[#CDA52F]">#{p.ticketDia}</span>
                               <span className="text-[10px] text-white/40">{p.mesaNombre}</span>
-                              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${
-                                p.estado === 'PENDIENTE' ? 'bg-[#FFE66D]/15 text-[#FFE66D]'
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${p.estado === 'PENDIENTE' ? 'bg-[#FFE66D]/15 text-[#FFE66D]'
                                 : p.estado === 'DESPACHADO' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]'
-                                : p.estado === 'CANCELADO' ? 'bg-[#FF5050]/15 text-[#FF5050]'
-                                : 'bg-white/5 text-white/30'
-                              }`}>{p.estado}</span>
+                                  : p.estado === 'CANCELADO' ? 'bg-[#FF5050]/15 text-[#FF5050]'
+                                    : 'bg-white/5 text-white/30'
+                                }`}>{p.estado}</span>
                               <span className="text-[10px] text-white/20 ml-auto">
                                 {new Date(p.creadoEn).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
                               </span>
                               <span className="text-xs text-white/60 font-medium">{fmtCOP(p.total)}</span>
                               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                                 className={`text-white/20 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
-                                <polyline points="6 9 12 15 18 9"/>
+                                <polyline points="6 9 12 15 18 9" />
                               </svg>
                             </div>
                             {isExpanded && (
@@ -1232,7 +1343,7 @@ function LiquidacionNueva({
             )}
 
             <Card className="mb-4">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Productos — Cantidades Vendidas</p>
+              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Productos â€” Cantidades Vendidas</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -1410,7 +1521,7 @@ function LiquidacionNueva({
               const c = calcularLiquidacion(activeLiq)
               return (
                 <Card className="mb-4 border-[#CDA52F]/15">
-                  <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cuadre — {activeLiq.nombre}</p>
+                  <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cuadre â€” {activeLiq.nombre}</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between"><span className="text-white/45">Total Venta</span><span className="text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span></div>
                     {c.totalDatafono > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Datafono</span><span className="text-white/60">-{fmtFull(c.totalDatafono)}</span></div>}
@@ -1459,7 +1570,8 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
   guardando: boolean; fechaDuplicada: boolean; handleGuardar: () => void; onBack: () => void
   isEditing?: boolean
 }) {
-  const [sortCol, setSortCol] = useState<string>('nombre')
+  // sortCol vacío = orden personalizado del módulo Productos (sin indicador de sort)
+  const [sortCol, setSortCol] = useState<string>('')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const handleSort = (campo: string) => {
@@ -1472,7 +1584,7 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
   const SortTh = ({ campo, label, className = '' }: { campo: string; label: string; className?: string }) => (
     <th className={`text-xs font-medium py-2 px-1 cursor-pointer select-none hover:text-white/70 transition-colors ${className}`}
       onClick={() => handleSort(campo)}>
-      {label} {sortCol === campo ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+      {label} {sortCol === campo ? (sortDir === 'asc' ? 'â–²' : 'â–¼') : ''}
     </th>
   )
 
@@ -1554,7 +1666,11 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [showImport, setShowImport] = useState(false)
-  const filtrados = inventarios.filter(inv => { if (desde && inv.fecha < desde) return false; if (hasta && inv.fecha > hasta) return false; return true })
+  const filtrados = inventarios.filter(inv => {
+    if (desde && inv.fecha < desde) return false
+    if (hasta && inv.fecha > hasta) return false
+    return true
+  }).sort((a, b) => b.fecha.localeCompare(a.fecha))
 
   const handleImport = async (toImport: InventarioInput[]) => {
     const fallidos: { fecha: string; error: string }[] = []
@@ -1632,6 +1748,9 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
                         </thead>
                         <tbody>
                           {inv.lineas.filter(l => l.saldo !== 0 || l.entradas !== 0 || (l.salidas && l.salidas !== 0)).map(l => (
+
+
+
                             <tr key={`${l.productoId}-${l.nombre}`} className="border-b border-white/5">
                               <td className="py-1 pr-2 text-white/70">{l.nombre}</td>
                               <td className="py-1 px-1 text-center text-[#FF5050]">{l.salidas || '-'}</td>
@@ -1652,10 +1771,17 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
                         </tfoot>
                       </table>
                     </div>
+
+
+
+
+
+
+
                     {!isReadOnly && (
                       <div className="flex justify-end gap-2 mt-3">
                         <Btn size="sm" variant="ghost" onClick={() => onEditar(inv)} className="flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>Editar
                         </Btn>
                         {confirmDelete === inv.id ? (
                           <div className="flex gap-2 items-center">
@@ -1664,7 +1790,7 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
                             <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
                           </div>
                         ) : (
-                          <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(inv.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
+                          <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(inv.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>Eliminar</Btn>
                         )}
                       </div>
                     )}
@@ -1681,20 +1807,37 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
 
 
 
-function ComparativoNuevo({ fecha, setFecha, lineas, totalConteo, totalTiquets, actualizarLinea, guardando, fechaDuplicada, handleGuardar, onBack }: {
-  fecha: string; setFecha: (v: string) => void; lineas: LineaComparativo[]
+function ComparativoNuevo({ fecha, fechaHasta, onChangeRango, lineas, totalConteo, totalTiquets, actualizarLinea, guardando, fechaDuplicada, handleGuardar, onBack }: {
+  fecha: string; fechaHasta: string; onChangeRango: (desde: string, hasta: string) => void; lineas: LineaComparativo[]
   totalConteo: number; totalTiquets: number
   actualizarLinea: (idx: number, campo: 'conteo' | 'tiquets', valor: string) => void
   guardando: boolean; fechaDuplicada: boolean; handleGuardar: () => void; onBack: () => void
 }) {
+  const [fechaDesdeLocal, setFechaDesdeLocal] = useState(fecha)
+  const [fechaHastaLocal, setFechaHastaLocal] = useState(fechaHasta)
   const totalDiferencia = lineas.reduce((s, l) => s + l.diferencia, 0)
-  return (
-    <div>
-      <BackButton onClick={onBack} title="Nuevo Comparativo de Ventas" />
-      <div className="flex gap-3 items-end mb-2">
-        <Input label="Fecha" type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="w-44" />
-      </div>
-      {fechaDuplicada && <p className="text-xs text-[#FF5050] mb-3">Ya existe un comparativo para esta fecha.</p>}
+
+ return (
+  <div>
+    <BackButton onClick={onBack} title="Nuevo Comparativo de Ventas" />
+    <div className="flex gap-3 items-end mb-2 flex-wrap">
+      <Input label="Desde" type="date" value={fechaDesdeLocal} max={fechaHastaLocal || undefined}
+        onChange={e => setFechaDesdeLocal(e.target.value)} className="w-44" />
+      <Input label="Hasta" type="date" value={fechaHastaLocal} min={fechaDesdeLocal || undefined}
+        onChange={e => setFechaHastaLocal(e.target.value)} className="w-44" />
+      <Btn onClick={() => onChangeRango(fechaDesdeLocal, fechaHastaLocal)}>
+        Calcular
+      </Btn>
+      <Btn variant="ghost" onClick={() => {
+        setFechaDesdeLocal('')
+        setFechaHastaLocal('')
+        onChangeRango('', '')
+      }}>
+        Limpiar
+      </Btn>
+    </div>  
+
+      {fechaDuplicada && <p className="text-xs mb-3">Comparativo Calculado ✅ </p>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -1748,17 +1891,21 @@ function ComparativoNuevo({ fecha, setFecha, lineas, totalConteo, totalTiquets, 
   )
 }
 
-function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, productosLoaded, productos, guardarComparativo }: {
+function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDelete, setConfirmDelete, handleEliminar, onNuevo, onEditar, productosLoaded, productos, guardarComparativo }: {
   comparativos: ComparativoType[]; expandedId: string | null; setExpandedId: (id: string | null) => void
   confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
-  handleEliminar: (id: string) => void; onNuevo: () => void; productosLoaded: boolean
+  handleEliminar: (id: string) => void; onNuevo: () => void; onEditar: (c: ComparativoType) => void; productosLoaded: boolean
   productos: Producto[]; guardarComparativo: (comp: ComparativoInput) => Promise<void>
 }) {
   const isReadOnly = useIsReadOnly()
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [showImport, setShowImport] = useState(false)
-  const filtrados = comparativos.filter(c => { if (desde && c.fecha < desde) return false; if (hasta && c.fecha > hasta) return false; return true })
+  const filtrados = comparativos.filter(c => {
+    if (desde && c.fecha < desde) return false
+    if (hasta && c.fecha > hasta) return false
+    return true
+  }).sort((a, b) => b.fecha.localeCompare(a.fecha))
 
   const handleImport = async (toImport: ComparativoInput[]) => {
     const fallidos: { fecha: string; error: string }[] = []
@@ -1804,7 +1951,7 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
         <div className="space-y-3">
           {filtrados.map(c => {
             const expanded = expandedId === c.id
-            const totalDif = c.lineas.reduce((s, l) => s + l.diferencia, 0)
+            const totalDif = c.totalDiferencia ?? c.lineas.reduce((s, l) => s + l.diferencia, 0)
             const conDif = c.lineas.filter(l => l.diferencia !== 0).length
             return (
               <Card key={c.id} className="cursor-pointer" onClick={() => setExpandedId(expanded ? null : c.id)}>
@@ -1861,7 +2008,13 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
                       </table>
                     </div>
                     {!isReadOnly && (
-                      <div className="flex justify-end mt-3">
+                      <div className="flex justify-end gap-2 mt-3">
+                        <Btn size="sm" variant="ghost" onClick={() => onEditar(c)} className="flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>Editar
+                        </Btn>
                         {confirmDelete === c.id ? (
                           <div className="flex gap-2 items-center">
                             <span className="text-xs text-[#FF5050]">Eliminar?</span>
@@ -1869,7 +2022,7 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
                             <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Btn>
                           </div>
                         ) : (
-                          <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(c.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>Eliminar</Btn>
+                          <Btn size="sm" variant="danger" onClick={() => setConfirmDelete(c.id)} className="flex items-center gap-1.5"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>Eliminar</Btn>
                         )}
                       </div>
                     )}
@@ -1877,6 +2030,7 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
                 )}
               </Card>
             )
+
           })}
         </div>
       )}
@@ -1886,7 +2040,7 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
 
 
 
-function calcSemanaData(jornadasSem: Jornada[]) {
+function calcSemanaData(jornadasSem: Jornada[], totalInventario: number) {
   const tMap = new Map<string, { nombre: string; color: string; avatar: string; totales: number[] }>()
   for (let i = 0; i < jornadasSem.length; i++) {
     for (const liq of jornadasSem[i].liquidaciones || []) {
@@ -1896,7 +2050,7 @@ function calcSemanaData(jornadasSem: Jornada[]) {
   }
   const resumen = jornadasSem.map(j => { const c = calcularCuadreDia(j.liquidaciones || []); return { sesion: j.sesion, fecha: j.fecha, id: j.id, ventaTotal: c.totalVendido, gastos: c.totalGastos, datafono: c.pagos.Datafono, qr: c.pagos.QR, nequi: c.pagos.Nequi, vales: c.pagos.Vales, cortesias: c.totalCortesias, efectivo: c.pagos.Efectivo, totalRecibido: c.totalRecibido, saldo: c.totalVendido - c.totalRecibido } })
   const s = (k: string) => resumen.reduce((a, r) => a + ((r as any)[k] || 0), 0)
-  const tot = { ventaTotal: s('ventaTotal'), gastos: s('gastos'), datafono: s('datafono'), qr: s('qr'), nequi: s('nequi'), vales: s('vales'), cortesias: s('cortesias'), efectivo: s('efectivo'), totalRecibido: s('totalRecibido'), saldo: s('saldo') }
+  const tot = { ventaTotal: s('ventaTotal'), gastos: s('gastos'), datafono: s('datafono'), qr: s('qr'), nequi: s('nequi'), vales: s('vales'), cortesias: s('cortesias'), efectivo: s('efectivo'), totalRecibido: s('totalRecibido'), saldo: s('totalRecibido') - totalInventario }
   return { trabajadores: Array.from(tMap.values()), resumen, tot }
 }
 
@@ -1914,7 +2068,7 @@ const FILAS_SEM: { key: string; label: string; color: string; bold?: boolean; is
 ]
 
 function LiquidacionSemana({
-  jornadas, productos, trabajadores, guardarJornada, agregarTrabajador, agregarProducto,
+  jornadas, inventarios, productos, trabajadores, guardarJornada, agregarTrabajador, agregarProducto,
   onEditar, handleEliminar,
 }: {
   jornadas: Jornada[]
@@ -1980,7 +2134,7 @@ function LiquidacionSemana({
       setDesde(fechas.reduce((min, f) => f < min ? f : min))
       setHasta(fechas.reduce((max, f) => f > max ? f : max))
     }
-  }, [jornadas]) 
+  }, [jornadas])
 
   const jornadasFiltradas = useMemo(() => {
     if (!desde || !hasta) return []
@@ -1995,9 +2149,9 @@ function LiquidacionSemana({
 
   const fechasDisponibles = useMemo(() => {
     const sorted = [...jornadas].sort((a, b) => a.fecha.localeCompare(b.fecha))
-    // Agrupar por SI según Días de Apertura (localStorage).
+    // Agrupar por SI segÃºn DÃ­as de Apertura (localStorage).
     // getSiInfoParaFecha devuelve { si, anoMes } donde anoMes puede ser el mes
-    // siguiente si el usuario marcó spillover cross-mes.
+    // siguiente si el usuario marcÃ³ spillover cross-mes.
     const siMap: Record<string, { jornadas: Jornada[]; anoMes: string; si: number }> = {}
     const sinSi: Jornada[] = []
     for (const j of sorted) {
@@ -2012,7 +2166,7 @@ function LiquidacionSemana({
     }
     const grupos: Jornada[][] = Object.values(siMap).map(g => g.jornadas)
     // Jornadas sin SI asignado se agrupan por proximidad (fallback)
-    // Nunca cruza límite de mes: un cambio de mes siempre abre nuevo grupo
+    // Nunca cruza lÃ­mite de mes: un cambio de mes siempre abre nuevo grupo
     if (sinSi.length > 0) {
       let curr: Jornada[] = []
       for (const j of sinSi) {
@@ -2040,9 +2194,47 @@ function LiquidacionSemana({
     return jornadasFiltradas.filter(j => ids.has(j.id))
   }, [jornadasFiltradas, semanaActiva, jornadasSeleccionadas, fechasDisponibles])
 
-  const d = useMemo(() => jornadasVisibles.length > 0 ? calcSemanaData(jornadasVisibles) : null, [jornadasVisibles])
+  const inventarioActual = useMemo(() => {
+    if (inventarios.length === 0) return 0
+    const invOrdenados = [...inventarios].sort((a, b) => b.fecha.localeCompare(a.fecha))
+    return invOrdenados[0].totalGeneral
+  }, [inventarios])
+
+  const inventarioInicial = useMemo(() => {
+    if (inventarios.length < 2) return 0
+    const invOrdenados = [...inventarios].sort((a, b) => b.fecha.localeCompare(a.fecha))
+    // El inventario anterior al más reciente
+    return invOrdenados[1].totalGeneral
+  }, [inventarios])
+
+  const inventarioSemana = useMemo(() => {
+    if (inventarios.length === 0) return 0
+
+    let fechaMin: string
+    let fechaMax: string
+
+    if (jornadasSeleccionadas.length > 0 || semanaActiva !== null) {
+      if (jornadasVisibles.length === 0) return 0
+      fechaMin = jornadasVisibles.reduce((min, j) => j.fecha < min ? j.fecha : min, jornadasVisibles[0].fecha)
+      fechaMax = jornadasVisibles.reduce((max, j) => j.fecha > max ? j.fecha : max, jornadasVisibles[0].fecha)
+    } else {
+      // Sin selección → usar el filtro de fechas general
+      fechaMin = desde || ''
+      fechaMax = hasta || ''
+    }
+
+    if (!fechaMin || !fechaMax) return 0
+    return inventarios
+      .filter(i => i.fecha >= fechaMin && i.fecha <= fechaMax)
+      .reduce((sum, i) => sum + i.totalGeneral, 0)
+  }, [inventarios, desde, hasta, jornadasVisibles, jornadasSeleccionadas, semanaActiva])
+
+  const d = useMemo(() => jornadasVisibles.length > 0 ? calcSemanaData(jornadasVisibles, inventarioSemana ?? 0) : null, [jornadasVisibles, inventarioSemana])
 
   const diasNombre = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
+
+  console.log('DEBUG inventarios:', inventarios.map(i => ({ fecha: i.fecha, total: i.totalGeneral, tipo: typeof i.totalGeneral })))
+  console.log('DEBUG jornadasVisibles fechas:', jornadasVisibles.map(j => j.fecha))
 
   return (
     <div>
@@ -2089,7 +2281,7 @@ function LiquidacionSemana({
             <p className="text-[10px] text-white/25 uppercase tracking-wider">
               Sesiones en el rango seleccionado
               {jornadasSeleccionadas.length > 0 && (
-                <span className="ml-2 text-[#CDA52F]/80 normal-case">· {jornadasSeleccionadas.length} día{jornadasSeleccionadas.length === 1 ? '' : 's'} seleccionado{jornadasSeleccionadas.length === 1 ? '' : 's'}</span>
+                <span className="ml-2 text-[#CDA52F]/80 normal-case">Â· {jornadasSeleccionadas.length} dÃ­a{jornadasSeleccionadas.length === 1 ? '' : 's'} seleccionado{jornadasSeleccionadas.length === 1 ? '' : 's'}</span>
               )}
             </p>
             {(jornadasSeleccionadas.length > 0 || semanaActiva !== null) && (
@@ -2127,13 +2319,13 @@ function LiquidacionSemana({
                 const dtN = new Date(fN + 'T12:00:00')
                 const mes = dt0.toLocaleDateString('es-CO', { month: 'short' })
                 const d0 = dt0.getDate(), dN = dtN.getDate()
-                grupoLabel = d0 === dN ? `${d0} ${mes}` : `${d0}–${dN} ${mes}`
+                grupoLabel = d0 === dN ? `${d0} ${mes}` : `${d0}â€“${dN} ${mes}`
               }
               return (
                 <div key={gi} className="flex flex-col gap-1.5">
                   <button onClick={() => toggleSemana(gi, idsGrupo)}
                     className={`text-[10px] font-bold tracking-wider transition-all ${todasSeleccionadas ? 'text-[#CDA52F]' : 'text-white/25 hover:text-[#CDA52F]/60'}`}>
-                    {grupoLabel}{todasSeleccionadas ? ' ✓' : ''}
+                    {grupoLabel}{todasSeleccionadas ? ' âœ“' : ''}
                   </button>
                   <div className="flex items-center rounded-xl overflow-hidden border border-[#CDA52F]/25"
                     style={{ boxShadow: semanaResaltada ? '0 0 12px rgba(205,165,47,0.12)' : 'none' }}>
@@ -2261,36 +2453,46 @@ function LiquidacionSemana({
             </div>
           </Card>
 
-          {/* Saldo por jornada */}
-          <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <p className="text-[10px] text-white/25 uppercase tracking-wider font-bold mb-3">Saldo</p>
-            <div className="flex gap-3 flex-wrap">
-              {d.resumen.map((r, i) => {
-                const info = getSiInfoParaFecha(r.fecha)
-                const color = r.saldo === 0 ? '#60A5FA' : r.saldo > 0 ? '#4ECDC4' : '#FF5050'
-                return (
-                  <div key={i} className="flex-1 min-w-[80px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                    <p className="text-[9px] font-bold text-white/50 mb-0.5">{info ? `SI-${info.si}` : r.sesion}</p>
-                    <p className="text-[9px] text-white/25 mb-1">{r.fecha.split('-').reverse().join('/')}</p>
-                    <p className="text-base font-extrabold" style={{ color }}>{fmtCOP(r.saldo)}</p>
-                  </div>
-                )
-              })}
-              {jornadasVisibles.length > 1 && (() => {
-                const color = d.tot.saldo === 0 ? '#60A5FA' : d.tot.saldo > 0 ? '#4ECDC4' : '#FF5050'
-                return (
-                  <div className="flex-1 min-w-[80px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(205,165,47,0.06)', border: '1px solid rgba(205,165,47,0.15)' }}>
+          {/* Inventario */}
+          {jornadasVisibles.length > 1 && (
+            <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <p className="text-[10px] text-white/25 uppercase tracking-wider font-bold mb-4">Inventario</p>
+              <div className="w-full space-y-2">
+
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-white/40">Total Inventario</span>
+                  <span className="text-sm font-bold text-white/80">{fmtCOP(inventarioSemana ?? 0)}</span>
+                </div>
+                <div className="border-t border-white/[0.07] pt-2 flex justify-between items-center">
+                  <span className="text-xs text-white/40">(-) Total Medios de Pago</span>
+                  <span className="text-sm font-bold text-[#4ECDC4]">{fmtCOP(d.tot.totalRecibido)}</span>
+                </div>
+                <div className="border-t border-white/10 pt-2 flex justify-between items-center">
+
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Saldo Total */}
+          {jornadasVisibles.length > 1 && (() => {
+            const color = d.tot.saldo === 0 ? '#60A5FA' : d.tot.saldo < 0 ? '#FF5050' : '#4ECDC4'
+            return (
+              <div className="rounded-xl p-4" style={{ background: 'rgba(205,165,47,0.06)', border: '1px solid rgba(205,165,47,0.15)' }}>
+                <p className="text-[10px] text-white/25 uppercase tracking-wider font-bold mb-3">Saldo</p>
+                <div className="flex gap-3 flex-wrap">
+                  <div className="flex-1 min-w-[120px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(205,165,47,0.04)' }}>
                     <p className="text-[10px] text-[#CDA52F]/60 mb-1">Saldo Total</p>
                     <p className="text-base font-extrabold" style={{ color }}>{fmtCOP(d.tot.saldo)}</p>
                   </div>
-                )
-              })()}
-            </div>
-          </div>
+                </div>
+              </div>
+            )
+          })()}
 
           <div className="flex justify-end mt-2">
             <Btn variant="ghost" onClick={() => printSemanal(jornadasVisibles, d)} className="flex items-center gap-1.5">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Imprimir Liquidacion
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>Imprimir Liquidacion
             </Btn>
           </div>
         </div>
@@ -2327,3 +2529,13 @@ const LineaProductoRow = React.memo(function LineaProductoRow({
     </tr>
   )
 })
+
+
+
+
+
+
+
+
+
+

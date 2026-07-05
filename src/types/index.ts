@@ -91,6 +91,7 @@ export interface Producto {
   nombre: string
   precio: number
   activo: boolean
+  orden?: number
 }
 
 export interface Trabajador {
@@ -190,15 +191,24 @@ export interface LineaComparativo {
 }
 
 export interface Comparativo {
+  totalDiferencia: number
   id: string
   fecha: string
+   fechaHasta?: string
   lineas: LineaComparativo[]
   totalConteo: number
   totalTiquets: number
   creadoEn?: any
 }
 
-export type ComparativoInput = Omit<Comparativo, 'id' | 'creadoEn'>
+export interface ComparativoInput {
+  fecha: string
+  fechaHasta?: string 
+  lineas: LineaComparativo[]
+  totalConteo: number
+  totalTiquets: number
+  totalDiferencia?: number
+}
 
 export interface Mesa {
   id: string
