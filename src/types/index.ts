@@ -143,7 +143,7 @@ export interface LiquidacionTrabajador {
   cortesias: Cortesia[]
   gastos: GastoDiario[]
   totalVenta: number
-  efectivoEntregado: number
+  efectivoEntregado: number | null
 }
 
 export interface Jornada {

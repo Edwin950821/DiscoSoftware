@@ -186,6 +186,8 @@ export default function Productos({ productos, agregar, actualizar, eliminar, re
   const [error, setError] = useState('')
   const [confirmAction, setConfirmAction] = useState<{ id: string; tipo: 'eliminar' | 'desactivar' | 'activar' } | null>(null)
   const [showImport, setShowImport] = useState(false)
+  const [showSavedFeedback, setShowSavedFeedback] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const existeNombre = (name: string, excludeId?: string) =>
     productos.some(p => p.nombre.toLowerCase() === name.toLowerCase() && p.id !== excludeId)
@@ -283,6 +285,16 @@ export default function Productos({ productos, agregar, actualizar, eliminar, re
     await reordenar(newProductos)
   }
 
+  const handleGuardar = async () => {
+    if (!reordenar || saving) return
+    setSaving(true)
+    await reordenar(productos)
+    await new Promise(r => setTimeout(r, 1000))
+    setSaving(false)
+    setShowSavedFeedback(true)
+    setTimeout(() => setShowSavedFeedback(false), 2000)
+  }
+
   // Solo permitir drag en lista completa (sin búsqueda)
   const canDrag = !busqueda.trim() && !isReadOnly && reordenar
 
@@ -354,11 +366,25 @@ export default function Productos({ productos, agregar, actualizar, eliminar, re
         </Card>
       )}
 
-      <p className="text-xs text-white/30 mb-3">
-        {filtrados.length} de {productos.length} productos
-        {busqueda.trim() && <button onClick={() => setBusqueda('')} className="ml-2 text-[#CDA52F] hover:text-[#CDA52F]/70">Limpiar</button>}
-        {canDrag && <span className="ml-2 text-white/20">• Arrastra para reordenar</span>}
-      </p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-white/30">
+          {filtrados.length} de {productos.length} productos
+          {busqueda.trim() && <button onClick={() => setBusqueda('')} className="ml-2 text-[#CDA52F] hover:text-[#CDA52F]/70">Limpiar</button>}
+          {canDrag && <span className="ml-2 text-white/20">• Arrastra para reordenar</span>}
+        </p>
+        {canDrag && (
+          <button onClick={handleGuardar}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#CDA52F]/10 text-[#CDA52F] border border-[#CDA52F]/20 hover:bg-[#CDA52F]/20 transition-all">
+            {saving ? (
+              <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Guardando</>
+            ) : showSavedFeedback ? (
+              <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Guardado</>
+            ) : (
+              <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Guardar</>
+            )}
+          </button>
+        )}
+      </div>
 
       <DndContext
         sensors={sensors}

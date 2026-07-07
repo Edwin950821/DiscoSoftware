@@ -3,7 +3,8 @@ import { io, Socket } from 'socket.io-client'
 import { requestNotificationPermission, sendBrowserNotification, vibrar } from '../lib/notification'
 import { playSuperNotificationSound } from '../lib/sound'
 
-const SOCKET_URL = (import.meta.env.VITE_SOCKET_URL as string | undefined) || 'http://localhost:3001'
+const SOCKET_URL = (import.meta.env.VITE_SOCKET_URL as string | undefined) || 
+  (import.meta.env.DEV ? 'http://localhost:8082' : 'https://monastery-backend-dmby.onrender.com')
 const STORAGE_KEY = 'monastery_super_notifs'
 const MAX_NOTIFS = 50
 
@@ -130,13 +131,23 @@ export function useSuperNotifications(enabled: boolean, onAbrir?: (n: SuperNotif
       query: { token },
       transports: ['polling', 'websocket'],
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1500,
+      reconnectionAttempts: 3,
+      reconnectionDelay: 2000,
+      timeout: 5000,
     })
 
     socket.on('connect', () => { if (mountedRef.current) setConectado(true) })
     socket.on('disconnect', () => { if (mountedRef.current) setConectado(false) })
-    socket.on('connect_error', () => { if (mountedRef.current) setConectado(false) })
+    socket.on('connect_error', (err) => { 
+      if (mountedRef.current) setConectado(false)
+      // Silenciar errores de conexión después de los reintentos
+      if (err.message?.includes('ECONNREFUSED') || err.message?.includes('timeout')) {
+        socket.io.opts.reconnection = false
+      }
+    })
+    socket.on('reconnect_failed', () => {
+      if (mountedRef.current) setConectado(false)
+    })
 
     socket.on('super_actualizacion', (raw: RawEvent) => {
       if (!mountedRef.current) return

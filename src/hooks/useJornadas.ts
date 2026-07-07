@@ -8,7 +8,7 @@ export function useJornadas() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await apiFetch(`${API_MANAGEMENT}/jornadas`)
+      const res = await apiFetch(`${API_MANAGEMENT}/jornadas?_=${Date.now()}`)
       if (!res.ok) return
       const data = await res.json()
       setJornadas(data.map((j: any) => {
@@ -47,7 +47,7 @@ export function useJornadas() {
           saldo: cuadre.saldo, cortesias: cuadre.totalCortesias, gastos: cuadre.totalGastos, pagos: cuadre.pagos,
         } as Jornada
       }))
-    } catch { /* offline */ }
+    } catch (e) { console.error('Error fetching jornadas:', e) }
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])

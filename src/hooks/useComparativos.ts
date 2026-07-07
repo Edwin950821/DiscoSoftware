@@ -27,11 +27,33 @@ export function useComparativos() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   const guardar = async (comparativo: ComparativoInput) => {
+    const totalDiferencia = comparativo.totalDiferencia ?? (comparativo.totalTiquets - comparativo.totalConteo)
     await db.comparativos.add({
       fecha: comparativo.fecha,
+      fechaHasta: comparativo.fechaHasta ?? comparativo.fecha,
       totalConteo: comparativo.totalConteo,
       totalTiquets: comparativo.totalTiquets,
+      totalDiferencia,
       creadoEn: new Date().toISOString(),
+      lineas: comparativo.lineas.map(l => ({
+        productoId: l.productoId,
+        nombre: l.nombre,
+        conteo: l.conteo,
+        tiquets: l.tiquets,
+        diferencia: typeof l.diferencia === 'number' ? l.diferencia : l.tiquets - l.conteo,
+      })),
+    })
+    await fetchAll()
+  }
+
+  const actualizar = async (id: string, comparativo: ComparativoInput) => {
+    const totalDiferencia = comparativo.totalDiferencia ?? (comparativo.totalTiquets - comparativo.totalConteo)
+    await db.comparativos.update(Number(id), {
+      fecha: comparativo.fecha,
+      fechaHasta: comparativo.fechaHasta ?? comparativo.fecha,
+      totalConteo: comparativo.totalConteo,
+      totalTiquets: comparativo.totalTiquets,
+      totalDiferencia,
       lineas: comparativo.lineas.map(l => ({
         productoId: l.productoId,
         nombre: l.nombre,
@@ -48,5 +70,5 @@ export function useComparativos() {
     await fetchAll()
   }
 
-  return { comparativos, guardar, eliminar }
+  return { comparativos, guardar, actualizar, eliminar }
 }

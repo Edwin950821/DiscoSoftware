@@ -7,7 +7,7 @@ export function useProductos() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await apiFetch(`${API_MANAGEMENT}/productos`)
+      const res = await apiFetch(`${API_MANAGEMENT}/productos?_=${Date.now()}`)
       if (!res.ok) return
       const data = await res.json()
       const mapped = data.map((p: any) => ({
@@ -20,7 +20,7 @@ export function useProductos() {
       // Ordenar por campo 'orden' ascendente
       mapped.sort((a: Producto, b: Producto) => (a.orden ?? 999999) - (b.orden ?? 999999))
       setProductos(mapped)
-    } catch { /* offline */ }
+    } catch (e) { console.error('Error fetching productos:', e) }
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])

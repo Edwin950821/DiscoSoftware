@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type {
   Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago,
+  LineaVenta,
   Inventario as InventarioType, LineaInventario, InventarioInput,
   Comparativo as ComparativoType, LineaComparativo, ComparativoInput,
   Pedido, CuentaMesa,
@@ -94,7 +95,7 @@ function saldoColor(v: number) { return v === 0 ? 'blue' : v > 0 ? 'green' : 're
 
 function printJornada(j: Jornada) {
   const esperado = j.totalVendido - j.cortesias - j.gastos
-  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion Diaria â€” <span>${j.sesion}</span></h1><p class="sub">${j.fecha}</p></div></div>`
+  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion Diaria De<span>${j.sesion}</span></h1><p class="sub">${j.fecha}</p></div></div>`
 
   body += '<h2>Meseros</h2><table><thead><tr><th>Nombre</th><th>Venta</th><th>Efectivo</th><th>Datafono</th><th>QR</th><th>Nequi</th><th>Vales</th><th>Cortesias</th><th>Gastos</th><th>Saldo</th></tr></thead><tbody>'
   for (const liq of j.liquidaciones || []) {
@@ -169,7 +170,7 @@ function printSemanal(jornadasVisibles: Jornada[], d: ReturnType<typeof calcSema
 }
 
 function MoneyInput({ value, onChange, label, placeholder, className = '' }: {
-  value: number; onChange: (n: number) => void; label?: string; placeholder?: string; className?: string
+  value: number | null; onChange: (n: number) => void; label?: string; placeholder?: string; className?: string
 }) {
   const [display, setDisplay] = useState(value ? formatMoney(value) : '')
 
@@ -357,7 +358,7 @@ export default function Liquidacion({
       const newLiq: LiquidacionTrabajador = {
         trabajadorId: t.id, nombre: t.nombre, color: t.color, avatar: t.avatar,
         lineas: lineasIniciales, transacciones: [], vales: [], cortesias: [], gastos: [],
-        totalVenta: 0, efectivoEntregado: 0,
+        totalVenta: 0, efectivoEntregado: null,
       }
       setActiveTrabajadorId(id)
       return [...prev, newLiq]
@@ -376,7 +377,7 @@ export default function Liquidacion({
   const handleTabDblClick = (id: string) => {
     const liq = liquidaciones.find(l => l.trabajadorId === id)
     if (!liq) return
-    if (!confirm(`${liq.nombre} â€” Â¿Quitar de la liquidacion?`)) return
+    if (!confirm(`${liq.nombre} DeÂ¿Quitar de la liquidacion?`)) return
     toggleTrabajador(id)
   }
 
@@ -476,11 +477,21 @@ export default function Liquidacion({
     setFechaLiq(j.fecha)
     const productosActivos = productos.filter(p => p.activo)
     const liqs = (j.liquidaciones || []).map(liq => {
-      const idsExistentes = new Set((liq.lineas || []).map(l => l.productoId))
-      const lineasFaltantes = productosActivos
-        .filter(p => !idsExistentes.has(p.id))
-        .map(p => ({ productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad: 0, total: 0 }))
-      return { ...liq, lineas: [...(liq.lineas || []), ...lineasFaltantes] }
+      const lineasOriginales = liq.lineas || []
+      const mapLineas = new Map(lineasOriginales.map(l => [l.productoId, l]))
+      const reordenadas: LineaVenta[] = []
+      for (const p of productosActivos) {
+        const existente = mapLineas.get(p.id)
+        if (existente) {
+          reordenadas.push(existente)
+        } else {
+          reordenadas.push({ productoId: p.id, nombre: p.nombre, precioUnitario: p.precio, cantidad: 0, total: 0 })
+        }
+      }
+      for (const l of lineasOriginales) {
+        if (!productosActivos.find(p => p.id === l.productoId)) reordenadas.push(l)
+      }
+      return { ...liq, efectivoEntregado: null, lineas: reordenadas }
     })
     _setLiquidaciones(liqs)
     setActiveTrabajadorId(liqs.length > 0 ? liqs[0].trabajadorId : null)
@@ -494,7 +505,7 @@ export default function Liquidacion({
     try {
       const liqsAGuardar = liquidaciones.map(liq => {
         const c = calcularLiquidacion(liq)
-        return { ...liq, efectivoEntregado: liq.efectivoEntregado > 0 ? liq.efectivoEntregado : c.efectivo }
+        return { ...liq, efectivoEntregado: liq.efectivoEntregado != null ? liq.efectivoEntregado : c.efectivo }
       })
       const data = { sesion, fecha: fechaLiq, liquidaciones: liqsAGuardar }
       if (modoLiq === 'editar' && editJornadaId) {
@@ -546,7 +557,17 @@ export default function Liquidacion({
 
   const editarInv = (inv: InventarioType) => {
     setFechaInv(inv.fecha)
-    setLineasInv(inv.lineas.map(l => ({ ...l })))
+    const activos = productos.filter(p => p.activo)
+    const mapLineas = new Map(inv.lineas.map(l => [l.productoId, l]))
+    const reordenadas: LineaInventario[] = []
+    for (const p of activos) {
+      const existente = mapLineas.get(p.id)
+      if (existente) reordenadas.push({ ...existente })
+    }
+    for (const l of inv.lineas) {
+      if (!activos.find(p => p.id === l.productoId)) reordenadas.push({ ...l })
+    }
+    _setLineasInv(reordenadas)
     setEditInvId(inv.id)
     setModoInv('editar')
   }
@@ -665,7 +686,17 @@ export default function Liquidacion({
   const editarComp = (comp: ComparativoType) => {
     setFechaComp(comp.fecha)
     setFechaHastaComp(comp.fechaHasta ?? comp.fecha)
-    setLineasComp(comp.lineas.map(l => ({ ...l })))
+    const activos = productos.filter(p => p.activo)
+    const mapLineas = new Map(comp.lineas.map(l => [l.productoId, l]))
+    const reordenadas: LineaComparativo[] = []
+    for (const p of activos) {
+      const existente = mapLineas.get(p.id)
+      if (existente) reordenadas.push({ ...existente })
+    }
+    for (const l of comp.lineas) {
+      if (!activos.find(p => p.id === l.productoId)) reordenadas.push({ ...l })
+    }
+    setLineasComp(reordenadas)
     setEditCompId(comp.id)
     setModoComp('editar')
   }
@@ -950,7 +981,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                     <div className="space-y-3 mb-4">
                       {j.liquidaciones?.map((liq, i) => {
                         const c = calcularLiquidacion(liq)
-                        const efectivo = liq.efectivoEntregado > 0 ? liq.efectivoEntregado : c.efectivo
+                        const efectivo = c.efectivo
                         return (
                           <div key={i} className="p-3 rounded-lg bg-white/[0.03]">
                             <div className="flex items-center gap-2 mb-2">
@@ -1243,7 +1274,7 @@ function LiquidacionNueva({
                           <div className="flex items-center justify-between px-3 py-2 bg-white/[0.02]">
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] font-bold text-white/60">{cuenta.mesaNombre}</span>
-                              <span className="text-[10px] text-white/30">â€” {cuenta.nombreCliente}</span>
+                              <span className="text-[10px] text-white/30">De{cuenta.nombreCliente}</span>
                               <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${cuenta.estado === 'PAGADA' ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-[#FFE66D]/15 text-[#FFE66D]'
                                 }`}>{cuenta.estado}</span>
                             </div>
@@ -1343,7 +1374,7 @@ function LiquidacionNueva({
             )}
 
             <Card className="mb-4">
-              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Productos â€” Cantidades Vendidas</p>
+              <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Productos Y Cantidades Vendidas</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -1521,7 +1552,7 @@ function LiquidacionNueva({
               const c = calcularLiquidacion(activeLiq)
               return (
                 <Card className="mb-4 border-[#CDA52F]/15">
-                  <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cuadre â€” {activeLiq.nombre}</p>
+                  <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cuadre De {activeLiq.nombre}</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between"><span className="text-white/45">Total Venta</span><span className="text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span></div>
                     {c.totalDatafono > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Datafono</span><span className="text-white/60">-{fmtFull(c.totalDatafono)}</span></div>}

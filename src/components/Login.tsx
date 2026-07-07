@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { API_AUTH } from '../lib/config'
+import { useState, useMemo, useEffect } from 'react'
+import { API_AUTH, API_BASE } from '../lib/config'
 import type { DiscoRol, NegocioInfo } from '../types'
 import TerminosCondiciones from './TerminosCondiciones'
 import PoliticaPrivacidad from './PoliticaPrivacidad'
@@ -25,6 +25,10 @@ export default function Login({ onLogin }: LoginProps) {
   const [loading, setLoading] = useState(false)
   const [showTerminos, setShowTerminos] = useState(false)
   const [showPolitica, setShowPolitica] = useState(false)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/auth/health`, { method: 'GET' }).catch(() => {})
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

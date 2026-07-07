@@ -60,3 +60,6 @@ export function getHoy(): string {
   const col = new Date(now.getTime() - 5 * 60 * 60 * 1000)
   return col.toISOString().slice(0, 10)
 }
+
+if (import.meta.env.DEV) (window as any).db = db
+

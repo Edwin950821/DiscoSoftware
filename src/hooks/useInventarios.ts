@@ -7,7 +7,7 @@ export function useInventarios() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const res = await apiFetch(`${API_MANAGEMENT}/inventarios`)
+      const res = await apiFetch(`${API_MANAGEMENT}/inventarios?_=${Date.now()}`)
       if (!res.ok) return
       const data = await res.json()
       setInventarios(data.map((inv: any) => ({
@@ -18,7 +18,7 @@ export function useInventarios() {
           invFisico: l.invFisico, saldo: l.saldo, total: l.total,
         } as LineaInventario)),
       } as Inventario)))
-    } catch { /* offline */ }
+    } catch (e) { console.error('Error fetching inventarios:', e) }
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
