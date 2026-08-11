@@ -19,7 +19,7 @@ export function useJornadas() {
             trabajadorId: String(m.meseroId),
             nombre: m.nombre, color: m.color, avatar: m.avatar,
             totalVenta: m.totalMesero ?? 0,
-            efectivoEntregado: pagos.Efectivo ?? null,
+            efectivoEntregado: m.nombre === 'Barra' ? (pagos.Efectivo ?? null) : null,
             lineas: m.lineas || [],
             transacciones: m.transaccionesDetalle?.length > 0
               ? m.transaccionesDetalle
@@ -56,7 +56,7 @@ export function useJornadas() {
     const meseros = input.liquidaciones.map(liq => {
       const c = calcularLiquidacion(liq)
       const pagos: Record<string, number> = {}
-      const efEntregado = liq.efectivoEntregado ?? c.efectivo
+      const efEntregado = liq.nombre === 'Barra' ? (liq.efectivoEntregado ?? c.efectivo) : c.efectivo
       if (efEntregado > 0) pagos['Efectivo'] = efEntregado
       if (c.totalDatafono > 0) pagos['Datafono'] = c.totalDatafono
       if (c.totalQR > 0) pagos['QR'] = c.totalQR
@@ -83,7 +83,7 @@ export function useJornadas() {
     const meseros = input.liquidaciones.map(liq => {
       const c = calcularLiquidacion(liq)
       const pagos: Record<string, number> = {}
-      const efEntregado = liq.efectivoEntregado ?? c.efectivo
+      const efEntregado = liq.nombre === 'Barra' ? (liq.efectivoEntregado ?? c.efectivo) : c.efectivo
       if (efEntregado > 0) pagos['Efectivo'] = efEntregado
       if (c.totalDatafono > 0) pagos['Datafono'] = c.totalDatafono
       if (c.totalQR > 0) pagos['QR'] = c.totalQR

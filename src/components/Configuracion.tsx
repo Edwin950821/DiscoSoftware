@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { Trabajador, Promocion } from '../types'
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
@@ -7,8 +7,11 @@ import { db, hashPassword } from '../lib/db'
 import { usePromociones } from '../hooks/usePromociones'
 import { useProductos } from '../hooks/useProductos'
 import { useIsReadOnly } from '../hooks/useIsReadOnly'
+import { useColoresPago, getColoresPago } from '../hooks/useColoresPago'
 
 const COLORES_TRABAJADOR = ['#CDA52F', '#4ECDC4', '#FFE66D', '#A8E6CF', '#C3B1E1', '#FF8FA3', '#98D8C8', '#FFB347']
+
+type ModuloKey = 'dashboard' | 'pedidos' | 'ventas' | 'promociones' | 'billar'
 
 interface Props {
   accessToken: string
@@ -16,13 +19,13 @@ interface Props {
   agregarTrabajador: (t: Omit<Trabajador, 'id'> & { username?: string; password?: string }) => Promise<void>
   actualizarTrabajador: (id: string, data: Partial<Trabajador>) => Promise<void>
   eliminarTrabajador: (id: string) => Promise<void>
-  premiumEnabled: boolean
-  onTogglePremium: (pin: string) => Promise<boolean>
+  modulosActivos: Record<ModuloKey, boolean>
+  onToggleModulo: (key: ModuloKey) => void
 }
 
-export default function Configuracion({ accessToken, trabajadores, agregarTrabajador, actualizarTrabajador, eliminarTrabajador, premiumEnabled, onTogglePremium }: Props) {
+export default function Configuracion({ accessToken, trabajadores, agregarTrabajador, actualizarTrabajador, eliminarTrabajador, modulosActivos, onToggleModulo }: Props) {
   const isReadOnly = useIsReadOnly()
-  const [tab, setTab] = useState<'trabajadores' | 'promociones' | 'seguridad' | 'modulos'>('trabajadores')
+  const [tab, setTab] = useState<'trabajadores' | 'promociones' | 'seguridad' | 'modulos' | 'colores'>('trabajadores')
   const { promociones, crear: crearPromo, actualizar: actualizarPromo, eliminar: eliminarPromo, toggleActiva } = usePromociones()
   const { productos } = useProductos()
   const productosActivos = useMemo(() => productos.filter(p => p.activo), [productos])
@@ -33,6 +36,11 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editNombre, setEditNombre] = useState('')
+
+  const { colores: coloresPago, actualizar: actualizarColoresPago } = useColoresPago()
+  const [tempColores, setTempColores] = useState<Record<string, string>>({ ...getColoresPago() })
+  useEffect(() => { setTempColores({ ...getColoresPago() }) }, [tab])
+  const [showColoresSaved, setShowColoresSaved] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -176,7 +184,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'trabajadores' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
           Trabajadores
         </button>
-        {premiumEnabled && <button onClick={() => setTab('promociones')}
+        {modulosActivos.promociones && <button onClick={() => setTab('promociones')}
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'promociones' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
           Promociones
           {promociones.filter(p => p.activa).length > 0 && (
@@ -192,6 +200,10 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
         <button onClick={() => setTab('modulos')}
           className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'modulos' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
           Modulos
+        </button>
+        <button onClick={() => setTab('colores')}
+          className={`px-4 py-1.5 rounded-md text-sm transition-all ${tab === 'colores' ? 'bg-[#CDA52F] text-white font-medium shadow-[0_0_10px_rgba(205,165,47,0.3)]' : 'text-white/50 hover:text-white/70'}`}>
+          Colores
         </button>
       </div>
 
@@ -313,7 +325,7 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
         </div>
       )}
 
-      {premiumEnabled && tab === 'promociones' && (
+      {modulosActivos.promociones && tab === 'promociones' && (
         <PromocionesTab
           promociones={promociones}
           productos={productosActivos}
@@ -347,7 +359,58 @@ export default function Configuracion({ accessToken, trabajadores, agregarTrabaj
         </Card>
       )}
 
-      {tab === 'modulos' && <ModulosPremium enabled={premiumEnabled} onToggle={onTogglePremium} />}
+      {tab === 'modulos' && <ModulosPremium modulosActivos={modulosActivos} onToggle={onToggleModulo} />}
+
+      {tab === 'colores' && (
+        <div className="max-w-lg">
+          {showColoresSaved && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowColoresSaved(false)}>
+              <div className="bg-[#1a1a1a] border border-white/10 rounded-xl p-6 max-w-sm mx-4 text-center" onClick={e => e.stopPropagation()}>
+                <div className="w-12 h-12 rounded-full bg-[#4ECDC4]/15 flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-[#4ECDC4]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <p className="text-white font-medium mb-1">Colores guardados</p>
+                <p className="text-xs text-white/40 mb-4">Los cambios se reflejan en toda la app</p>
+                <Btn onClick={() => setShowColoresSaved(false)} className="w-full">Aceptar</Btn>
+              </div>
+            </div>
+          )}
+          <Card className="mb-4 border-[#CDA52F]/20">
+            <p className="text-sm font-bold text-white/70 mb-4">Colores de Medios de Pago</p>
+            <p className="text-xs text-white/30 mb-5">Personaliza el color de cada medio de pago. Se refleja en liquidaciones, dashboard y graficos.</p>
+            <div className="space-y-4">
+              {Object.entries(tempColores).map(([medio, color]) => (
+                <div key={medio} className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.07]">
+                  <div className="relative">
+                    <input type="color" value={color}
+                      onChange={e => setTempColores(prev => ({ ...prev, [medio]: e.target.value }))}
+                      className="w-10 h-10 rounded-lg cursor-pointer border-0 bg-transparent [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-0" />
+                    <div className="absolute inset-0 rounded-lg border border-white/10 pointer-events-none" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white/80">{medio}</p>
+                    <p className="text-[10px] text-white/30 font-mono mt-0.5">{color.toUpperCase()}</p>
+                  </div>
+                  <div className="w-6 h-6 rounded-full shrink-0 border border-white/10" style={{ backgroundColor: color }} />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <Btn variant="ghost" onClick={() => {
+                const d = getColoresPago()
+                setTempColores({ ...d })
+              }}>Restaurar</Btn>
+              <Btn onClick={() => {
+                actualizarColoresPago(tempColores)
+                setShowColoresSaved(true)
+              }}>Guardar Colores</Btn>
+            </div>
+          </Card>
+          <Card className="border-white/[0.07]">
+            <p className="text-xs text-white/30">Los colores se guardan automaticamente en tu navegador y se aplican en todos los modulos: Liquidacion, Dashboard y Dashboard Consolidado.</p>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
@@ -593,32 +656,51 @@ function PromocionesTab({ promociones, productos, onCrear, onToggle, onEliminar 
   )
 }
 
-function ModulosPremium({ enabled, onToggle }: { enabled: boolean; onToggle: (pin: string) => Promise<boolean> }) {
+function ModulosPremium({ modulosActivos, onToggle }: { modulosActivos: Record<ModuloKey, boolean>; onToggle: (key: ModuloKey) => void }) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
+  const [unlocked, setUnlocked] = useState(false)
+  const [draft, setDraft] = useState<Record<ModuloKey, boolean>>(() => ({ ...modulosActivos }))
 
-  const modulos = [
-    { nombre: 'Dashboard', desc: 'Graficas, KPIs y resumen general', premium: true },
-    { nombre: 'Tickets / Pedidos', desc: 'Gestion de pedidos por mesa', premium: true },
-    { nombre: 'Ventas', desc: 'Control de ventas y cuentas', premium: true },
-    { nombre: 'Promociones', desc: 'Promos tipo 2x1, combos', premium: true },
-    { nombre: 'Liquidacion', desc: 'Liquidacion diaria por trabajador', premium: false },
-    { nombre: 'Liq. Semana', desc: 'Resumen semanal consolidado', premium: false },
-    { nombre: 'Billar', desc: 'Mesas de billar, partidas y cobros', premium: false },
-    { nombre: 'Inventario', desc: 'Control de inventario semanal', premium: false },
-    { nombre: 'Comparativo', desc: 'Conteo fisico vs tiquets', premium: false },
-    { nombre: 'Dias de Apertura', desc: 'Calendario de apertura mensual', premium: false },
-    { nombre: 'Productos', desc: 'Catalogo de productos y precios', premium: false },
+  useEffect(() => { setDraft({ ...modulosActivos }) }, [modulosActivos])
+
+  const premiumPin = localStorage.getItem('monastery_premium_pin') || '2741'
+
+  const modulos: { key: ModuloKey; nombre: string; desc: string }[] = [
+    { key: 'dashboard', nombre: 'Dashboard', desc: 'Graficas, KPIs y resumen general' },
+    { key: 'pedidos', nombre: 'Tickets / Pedidos', desc: 'Gestion de pedidos por mesa' },
+    { key: 'ventas', nombre: 'Ventas', desc: 'Control de ventas y cuentas' },
+    { key: 'promociones', nombre: 'Promociones', desc: 'Promos tipo 2x1, combos' },
+    { key: 'billar', nombre: 'Billar', desc: 'Mesas de billar, partidas y cobros' },
   ]
 
-  const handleSubmit = async () => {
-    if (await onToggle(pin)) {
+  const hayCambios = modulos.some(m => draft[m.key] !== modulosActivos[m.key])
+
+  const handleActivar = () => {
+    if (pin === premiumPin) {
+      setUnlocked(true)
+      setDraft({ ...modulosActivos })
       setPin('')
       setError('')
     } else {
       setError('PIN incorrecto')
       setTimeout(() => setError(''), 2000)
     }
+  }
+
+  const handleGuardar = () => {
+    modulos.forEach(m => { if (draft[m.key] !== modulosActivos[m.key]) onToggle(m.key) })
+    setUnlocked(false)
+  }
+
+  const handleCancelar = () => {
+    setDraft({ ...modulosActivos })
+  }
+
+  const handleBloquearTodo = () => {
+    setUnlocked(false)
+    setDraft({ ...modulosActivos })
+    modulos.forEach(m => { if (modulosActivos[m.key]) onToggle(m.key) })
   }
 
   return (
@@ -630,32 +712,38 @@ function ModulosPremium({ enabled, onToggle }: { enabled: boolean; onToggle: (pi
           </div>
           <div>
             <p className="text-sm font-bold text-white">Modulos Premium</p>
-            <p className="text-[11px] text-white/30">Desbloquea funcionalidades avanzadas</p>
+            <p className="text-[11px] text-white/30">
+              {unlocked ? `${modulos.filter(m => draft[m.key]).length}/5 modulos activos` : 'Ingresa el PIN para desbloquear'}
+            </p>
           </div>
-          <span className={`ml-auto text-[10px] font-bold px-2.5 py-1 rounded-full ${enabled ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-white/5 text-white/30'}`}>
-            {enabled ? 'ACTIVO' : 'BLOQUEADO'}
+          <span className={`ml-auto text-[10px] font-bold px-2.5 py-1 rounded-full ${unlocked ? 'bg-[#4ECDC4]/15 text-[#4ECDC4]' : 'bg-white/5 text-white/30'}`}>
+            {unlocked ? 'DESBLOQUEADO' : 'BLOQUEADO'}
           </span>
         </div>
 
-        <div className="flex gap-2">
-          <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN de activacion"
-            maxLength={4}
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#CDA52F]/50 text-center tracking-[0.5em]" />
-          <button onClick={handleSubmit}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${enabled ? 'bg-[#FF5050]/10 text-[#FF5050] border border-[#FF5050]/20 hover:bg-[#FF5050]/20' : 'bg-[#CDA52F] text-black hover:bg-[#CDA52F]/80'}`}>
-            {enabled ? 'Bloquear' : 'Activar'}
-          </button>
-        </div>
+        {!unlocked && (
+          <div className="flex gap-2">
+            <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN de activacion"
+              maxLength={10}
+              onKeyDown={e => e.key === 'Enter' && handleActivar()}
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#CDA52F]/50 text-center tracking-[0.5em]" />
+            <button onClick={handleActivar}
+              className="px-4 py-2 rounded-lg text-sm font-semibold bg-[#CDA52F] text-black hover:bg-[#CDA52F]/80 transition-all">
+              Activar
+            </button>
+          </div>
+        )}
         {error && <p className="text-xs text-[#FF5050] mt-2 text-center">{error}</p>}
       </Card>
 
-      <div className="space-y-2">
-        {modulos.map(m => (
-          <div key={m.nombre} className={`flex items-center justify-between p-3 rounded-xl border ${m.premium ? (enabled ? 'border-[#4ECDC4]/20 bg-[#4ECDC4]/[0.03]' : 'border-white/5 bg-white/[0.02] opacity-50') : 'border-white/[0.07] bg-white/[0.02]'}`}>
-            <div className="flex items-center gap-3">
-              {m.premium ? (
-                enabled ? (
+      {unlocked && <div className="space-y-2">
+        {modulos.map(m => {
+          const activo = draft[m.key]
+          return (
+            <div key={m.key}
+              className={`flex items-center justify-between p-3 rounded-xl border transition-all ${activo ? 'border-[#4ECDC4]/20 bg-[#4ECDC4]/[0.03]' : 'border-white/5 bg-white/[0.02]'}`}>
+              <div className="flex items-center gap-3">
+                {activo ? (
                   <div className="w-7 h-7 rounded-lg bg-[#4ECDC4]/15 flex items-center justify-center">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="#4ECDC4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
                   </div>
@@ -663,25 +751,45 @@ function ModulosPremium({ enabled, onToggle }: { enabled: boolean; onToggle: (pi
                   <div className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                   </div>
-                )
-              ) : (
-                <div className="w-7 h-7 rounded-lg bg-[#CDA52F]/10 flex items-center justify-center">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#CDA52F"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                )}
+                <div>
+                  <p className={`text-sm ${activo ? 'text-white/90' : 'text-white/50'}`}>{m.nombre}</p>
+                  <p className="text-[10px] text-white/25">{m.desc}</p>
                 </div>
-              )}
-              <div>
-                <p className="text-sm text-white/80">{m.nombre}</p>
-                <p className="text-[10px] text-white/25">{m.desc}</p>
               </div>
+              <button onClick={() => setDraft(prev => ({ ...prev, [m.key]: !prev[m.key] }))}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activo
+                    ? 'bg-[#FF5050]/10 text-[#FF5050] border border-[#FF5050]/20 hover:bg-[#FF5050]/20'
+                    : 'bg-[#4ECDC4] text-black hover:bg-[#4ECDC4]/80'
+                }`}>
+                {activo ? 'Bloquear' : 'Activar'}
+              </button>
             </div>
-            {m.premium && (
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${enabled ? 'bg-[#4ECDC4]/10 text-[#4ECDC4]' : 'bg-[#CDA52F]/10 text-[#CDA52F]'}`}>
-                PREMIUM
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
+          )
+        })}
+      </div>}
+
+      {unlocked && hayCambios && (
+        <div className="flex gap-2 mt-4">
+          <button onClick={handleGuardar}
+            className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold bg-[#CDA52F] text-black hover:bg-[#CDA52F]/80 transition-all">
+            Guardar cambios
+          </button>
+          <button onClick={handleCancelar}
+            className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold border border-white/10 text-white/70 hover:bg-white/5 transition-all">
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {unlocked && (
+        <button onClick={handleBloquearTodo}
+          className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-[#FF5050]/20 bg-[#FF5050]/5 text-xs text-[#FF5050] font-medium hover:bg-[#FF5050]/10 transition-all">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Bloquear todos los modulos premium
+        </button>
+      )}
     </div>
   )
 }

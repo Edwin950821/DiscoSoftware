@@ -3,7 +3,7 @@ export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   (import.meta.env.DEV
     ? 'http://localhost:8082'
-    : 'https://monastery-backend-dmby.onrender.com')
+    : 'https://api.monasteryclub.com')
 export const API_DISCO = `${API_BASE}/api/disco`
 export const API_MANAGEMENT = `${API_DISCO}/management`
 export const API_PEDIDOS = `${API_DISCO}/pedidos`

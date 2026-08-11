@@ -86,6 +86,8 @@ export interface ConsolidadoData {
 }
 export type TipoPago = 'Datafono' | 'QR' | 'Nequi'
 
+export type ColorResaltado = 'rojo' | 'naranja' | 'amarillo'
+
 export interface Producto {
   id: string
   nombre: string
@@ -115,6 +117,7 @@ export interface TransaccionPago {
   tipo: TipoPago
   concepto: string
   monto: number
+  resaltado?: ColorResaltado | null
 }
 
 export interface Vale {

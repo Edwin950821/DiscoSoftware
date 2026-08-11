@@ -27,18 +27,33 @@ export default function Login({ onLogin }: LoginProps) {
   const [showPolitica, setShowPolitica] = useState(false)
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/auth/health`, { method: 'GET' }).catch(() => {})
+    console.log('[LOGIN] montado | API_BASE:', API_BASE, '| API_AUTH:', API_AUTH, '| DEV:', import.meta.env.DEV)
+    const onError = (e: ErrorEvent) => console.error('[LOGIN][error global]', e.message, e.error)
+    const onRejection = (e: PromiseRejectionEvent) => console.error('[LOGIN][promise rechazada]', e.reason)
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    fetch(`${API_BASE}/api/auth/health`, { method: 'GET' })
+      .then(r => console.log('[LOGIN] health ok', r.status))
+      .catch((err) => console.warn('[LOGIN] health error', err))
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
+    alert('HANDLESUBMIT EJECUTADO')
     e.preventDefault()
+    console.log('[LOGIN] handleSubmit ejecutado | username.len:', username.length, '| password.len:', password.length, '| loading:', loading)
     setError('')
 
     if (!username.trim() || !password.trim()) {
+      console.warn('[LOGIN] validacion bloqueo: campos incompletos')
       setError('Ingrese usuario y contraseña')
       return
     }
 
+    console.log('[LOGIN] campos validos -> POST', `${API_AUTH}/login`)
     setLoading(true)
     try {
       const res = await fetch(`${API_AUTH}/login`, {
@@ -47,19 +62,24 @@ export default function Login({ onLogin }: LoginProps) {
         credentials: 'include',
         body: JSON.stringify({ username: username.trim().toLowerCase(), password, rol: 'ADMINISTRADOR', rememberMe }),
       })
+      console.log('[LOGIN] respuesta HTTP', res.status)
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
+          console.warn('[LOGIN] credenciales rechazadas', res.status)
           setError('Usuario o contraseña incorrectos')
         } else {
           const data = await res.json().catch(() => null)
+          console.warn('[LOGIN] error HTTP', res.status, data)
           setError(data?.message || 'Usuario o contraseña incorrectos')
         }
         return
       }
       const data = await res.json()
+      console.log('[LOGIN] login OK | rol:', data.rol, '| nombre:', data.nombre, '| negocios:', Array.isArray(data.negocios) ? data.negocios.length : 0)
       const negocios: NegocioInfo[] = Array.isArray(data.negocios) ? data.negocios : []
       onLogin(data.accessToken || '', data.refreshToken || '', data.rol as DiscoRol, data.nombre, data.meseroId || undefined, negocios)
-    } catch {
+    } catch (err) {
+      console.error('[LOGIN] excepcion en fetch:', err)
       setError('Credenciales inválidas.')
     } finally {
       setLoading(false)
@@ -215,6 +235,13 @@ export default function Login({ onLogin }: LoginProps) {
             <button
               type="submit"
               disabled={loading}
+              onClick={(e) => {
+                console.log(`[LOGIN] clic en boton submit | loading: ${loading}`)
+                if (!loading) {
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }
+              }}
               className="w-full py-3 rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50"
               style={{
                 background: 'linear-gradient(135deg, #D4AF37, #F5D76E)',

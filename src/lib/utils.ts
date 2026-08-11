@@ -6,9 +6,15 @@ export const fmtCOP = (n: number): string =>
 export const fmtFull = (n: number): string =>
   '$' + Number(n || 0).toLocaleString('es-CO')
 
+export const fmtSaldo = (n: number): string => {
+  if (n === 0) return '$0'
+  const prefix = n > 0 ? '-' : '+'
+  return prefix + '$' + Math.abs(n).toLocaleString('es-CO')
+}
+
 export function calcularLiquidacion(liq: LiquidacionTrabajador) {
   const lineas = liq.lineas || []
-  const transacciones = liq.transacciones || []
+  const transacciones = liq.transacciones || [] 
   const vales = liq.vales || []
   const cortesias = liq.cortesias || []
   const gastos = liq.gastos || []
@@ -48,11 +54,11 @@ export function calcularCuadreDia(liquidaciones: LiquidacionTrabajador[]) {
     totalEfectivo += liq.efectivoEntregado ?? c.efectivo
   }
 
-  const total = totalGastos + totalDatafono + totalQR + totalNequi + totalVales + totalCortesias + totalEfectivo
-  const saldo = total - totalVendido
+  const totalRecibido = totalEfectivo + totalDatafono + totalQR + totalNequi + totalVales + totalCortesias + totalGastos
+  const saldo = totalVendido - totalRecibido
 
   return {
-    totalVendido, totalRecibido: total, saldo,
+    totalVendido, totalRecibido, saldo,
     totalCortesias, totalGastos,
     pagos: {
       Efectivo: totalEfectivo,

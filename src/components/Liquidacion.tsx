@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type {
-  Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago,
+  Producto, Trabajador, Jornada, LiquidacionTrabajador, TipoPago, ColorResaltado, TransaccionPago,
   LineaVenta,
   Inventario as InventarioType, LineaInventario, InventarioInput,
   Comparativo as ComparativoType, LineaComparativo, ComparativoInput,
@@ -13,13 +13,29 @@ import ImportarInventarioExcel from './ImportarInventarioExcel'
 import ImportarLiquidacionExcel from './ImportarLiquidacionExcel'
 import ImportarComparativoExcel from './ImportarComparativoExcel'
 import { DateRangeFilter } from './ui/DateRangeFilter'
-import { fmtFull, fmtCOP, calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
+import { fmtFull, fmtCOP, fmtSaldo, calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
 import { useIsReadOnly } from '../hooks/useIsReadOnly'
+import { getColoresPago } from '../hooks/useColoresPago'
 import { API_PEDIDOS, apiFetch } from '../lib/config'
+import { db } from '../lib/db'
 import { getInventarioDraft, setInventarioDraft, clearInventarioDraft } from '../lib/inventarioDraft'
 import { getSiInfoParaFecha } from '../lib/apertura'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
+
+const RESALTADO_COLORS: Record<ColorResaltado, string> = {
+  rojo: '#FF5050',
+  naranja: '#FF6B35',
+  amarillo: '#FFE66D',
+}
+const RESALTADO_ORDEN: ColorResaltado[] = ['rojo', 'naranja', 'amarillo']
+
+function resaltadoMasFuerte(transacciones: TransaccionPago[], tipo: TipoPago): ColorResaltado | null {
+  for (const color of RESALTADO_ORDEN) {
+    if (transacciones.some(t => t.tipo === tipo && t.resaltado === color)) return color
+  }
+  return null
+}
 
 /** Navegar entre filas con flechas â†‘â†“ como Excel (y evitar que cambien el nÃºmero) */
 const handleTableArrowNav = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -44,8 +60,14 @@ const handleTableArrowNav = (e: React.KeyboardEvent<HTMLInputElement>) => {
     targetInput.select()
   }
 }
-const COLORES_PAGO: Record<string, string> = { Efectivo: '#CDA52F', Datafono: '#A8E6CF', QR: '#4ECDC4', Nequi: '#FFE66D', Vales: '#C3B1E1' }
 const COLORES_TRABAJADOR = ['#CDA52F', '#4ECDC4', '#FFE66D', '#A8E6CF', '#C3B1E1', '#FF8FA3', '#98D8C8', '#FFB347']
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
 
 function formatMoney(n: number): string {
   if (!n) return ''
@@ -91,7 +113,7 @@ ${body}
   w.document.close()
 }
 
-function saldoColor(v: number) { return v === 0 ? 'blue' : v > 0 ? 'green' : 'red' }
+function saldoColor(v: number) { return v === 0 ? 'blue' : v < 0 ? 'green' : 'red' }
 
 function printJornada(j: Jornada) {
   const esperado = j.totalVendido - j.cortesias - j.gastos
@@ -109,7 +131,7 @@ function printJornada(j: Jornada) {
       <td>${c.totalVales ? fmtFull(c.totalVales) : '-'}</td>
       <td>${c.totalCortesias ? fmtFull(c.totalCortesias) : '-'}</td>
       <td>${c.totalGastos ? fmtFull(c.totalGastos) : '-'}</td>
-      <td class="${saldoColor(c.saldo)} bold">${fmtFull(c.saldo)}</td>
+      <td class="${c.saldo === 0 ? 'blue' : c.saldo > 0 ? 'green' : 'red'} bold">${c.saldo === 0 ? '$0' : (c.saldo > 0 ? '+' : '-') + '$' + Math.abs(c.saldo).toLocaleString('es-CO')}</td>
     </tr>`
   }
   body += '</tbody></table>'
@@ -120,7 +142,7 @@ function printJornada(j: Jornada) {
   body += `<tr><td>(-) Gastos</td><td>${j.gastos ? fmtFull(j.gastos) : '-'}</td></tr>`
   body += `<tr class="total-row"><td>Esperado</td><td>${fmtFull(esperado)}</td></tr>`
   body += `<tr><td>Total Recibido</td><td class="bold">${fmtFull(j.totalRecibido)}</td></tr>`
-  body += `<tr class="saldo-row"><td>SALDO</td><td class="${saldoColor(j.saldo)}">${fmtFull(j.saldo)}</td></tr>`
+  body += `<tr class="saldo-row"><td>SALDO</td><td class="${saldoColor(j.saldo)}">${fmtSaldo(j.saldo)}</td></tr>`
   body += '</table>'
 
   printHTML(`Liquidacion ${j.sesion}`, body)
@@ -162,15 +184,15 @@ function printSemanal(jornadasVisibles: Jornada[], d: ReturnType<typeof calcSema
     body += '</tr>'
   }
   body += `<tr class="saldo-row"><td>Saldo</td>`
-  for (const r of d.resumen) body += `<td class="${saldoColor(r.saldo)}">${fmtCOP(r.saldo)}</td>`
-  if (hasTotal) body += `<td class="${saldoColor(d.tot.saldo)}">${fmtCOP(d.tot.saldo)}</td>`
+  for (const r of d.resumen) body += `<td class="${saldoColor(r.saldo)}">${fmtSaldo(r.saldo)}</td>`
+  if (hasTotal) body += `<td class="${saldoColor(d.tot.saldo)}">${fmtSaldo(d.tot.saldo)}</td>`
   body += '</tr></tbody></table>'
 
   printHTML(`Liquidacion Semanal ${f0} - ${fN}`, body)
 }
 
-function MoneyInput({ value, onChange, label, placeholder, className = '' }: {
-  value: number | null; onChange: (n: number) => void; label?: string; placeholder?: string; className?: string
+function MoneyInput({ value, onChange, label, placeholder, className = '', focusColor }: {
+  value: number | null; onChange: (n: number) => void; label?: string; placeholder?: string; className?: string; focusColor?: string
 }) {
   const [display, setDisplay] = useState(value ? formatMoney(value) : '')
 
@@ -191,7 +213,10 @@ function MoneyInput({ value, onChange, label, placeholder, className = '' }: {
       <div className="relative">
         <span className="absolute top-1/2 -translate-y-1/2 left-2.5 text-white/25 text-xs">$</span>
         <input type="text" inputMode="numeric" value={display} onChange={handleChange} placeholder={placeholder || '$0'}
-          className="w-full bg-white/5 border border-white/10 rounded-lg pl-6 pr-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#CDA52F]/50" />
+          className="w-full bg-white/5 border border-white/10 rounded-lg pl-6 pr-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none"
+          style={focusColor ? ({ borderColor: hexToRgba(focusColor, 0.3), outlineColor: focusColor } as React.CSSProperties) : undefined}
+          onFocus={e => { const fc = focusColor; if (fc) { e.target.style.borderColor = hexToRgba(fc, 0.5); e.target.style.outline = `1px solid ${hexToRgba(fc, 0.4)}` } }}
+          onBlur={e => { const fc = focusColor; if (fc) { e.target.style.borderColor = hexToRgba(fc, 0.3); e.target.style.outline = 'none' } }} />
       </div>
     </div>
   )
@@ -418,10 +443,30 @@ export default function Liquidacion({
       ...liq, transacciones: liq.transacciones.map((t, i) => i === idx ? { ...t, [field]: value } : t),
     }))
   }
+  const setResaltadoTransaccion = (trabajadorId: string, idx: number, color: ColorResaltado | null) => {
+    updateLiquidacion(trabajadorId, liq => ({
+      ...liq, transacciones: liq.transacciones.map((t, i) => i === idx ? { ...t, resaltado: color } : t),
+    }))
+  }
   const removeTransaccion = (trabajadorId: string, idx: number) => {
     updateLiquidacion(trabajadorId, liq => ({
       ...liq, transacciones: liq.transacciones.filter((_, i) => i !== idx),
     }))
+  }
+
+  const quitarResaltadoHistorial = async (j: Jornada, trabajadorId: string, tipo: TipoPago) => {
+    const liquidaciones = (j.liquidaciones || []).map(liq => {
+      if (liq.trabajadorId !== trabajadorId) return liq
+      return {
+        ...liq,
+        transacciones: (liq.transacciones || []).map(t => t.tipo === tipo ? { ...t, resaltado: null } : t),
+      }
+    })
+    try {
+      await actualizarJornada(j.id, { sesion: j.sesion, fecha: j.fecha, liquidaciones })
+    } catch (e) {
+      console.error('Error al quitar resaltado:', e)
+    }
   }
 
 
@@ -491,7 +536,7 @@ export default function Liquidacion({
       for (const l of lineasOriginales) {
         if (!productosActivos.find(p => p.id === l.productoId)) reordenadas.push(l)
       }
-      return { ...liq, efectivoEntregado: null, lineas: reordenadas }
+      return { ...liq, lineas: reordenadas }
     })
     _setLiquidaciones(liqs)
     setActiveTrabajadorId(liqs.length > 0 ? liqs[0].trabajadorId : null)
@@ -505,7 +550,12 @@ export default function Liquidacion({
     try {
       const liqsAGuardar = liquidaciones.map(liq => {
         const c = calcularLiquidacion(liq)
-        return { ...liq, efectivoEntregado: liq.efectivoEntregado != null ? liq.efectivoEntregado : c.efectivo }
+        return {
+          ...liq,
+          efectivoEntregado: liq.nombre === 'Barra'
+            ? (liq.efectivoEntregado != null ? liq.efectivoEntregado : c.efectivo)
+            : null,
+        }
       })
       const data = { sesion, fecha: fechaLiq, liquidaciones: liqsAGuardar }
       if (modoLiq === 'editar' && editJornadaId) {
@@ -649,9 +699,8 @@ export default function Liquidacion({
     return aDesde <= bHasta && bDesde <= aHasta
   }
 
-  const fechaCompDuplicada = false
-    ? false
-    : comparativos.some(c => rangosSeSolapan(fechaComp, fechaHastaComp || fechaComp, c.fecha, c.fechaHasta ?? c.fecha))
+  const fechaCompDuplicada = comparativos.some(c =>
+    c.id !== editCompId && rangosSeSolapan(fechaComp, fechaHastaComp || fechaComp, c.fecha, c.fechaHasta ?? c.fecha))
 
   const generarLineasCompPeriodo = (desde: string, hasta: string) => {
     const activos = productos.filter(p => p.activo)
@@ -660,8 +709,6 @@ export default function Liquidacion({
     const invBase = inventarios
       .filter(i => i.fecha <= hasta)
       .sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
-
-    console.log('DEBUG hasta:', hasta, '→ invBase encontrado:', invBase?.fecha ?? 'NINGUNO')
 
     // Respetar el orden de productos (ya viene ordenado por campo 'orden')
     return activos.map(p => {
@@ -806,6 +853,7 @@ export default function Liquidacion({
             updateEfectivoEntregado={updateEfectivoEntregado} updateTotalVentaManual={updateTotalVentaManual}
             updateLineaCantidad={updateLineaCantidad}
             updateTransaccion={updateTransaccion}
+            setResaltadoTransaccion={setResaltadoTransaccion}
             addTransaccion={addTransaccion} removeTransaccion={removeTransaccion}
             updateVale={updateVale} addVale={addVale} removeVale={removeVale}
             updateCortesia={updateCortesia} addCortesia={addCortesia} removeCortesia={removeCortesia}
@@ -814,14 +862,15 @@ export default function Liquidacion({
               setLiquidaciones(prev => prev.map(l => l.trabajadorId !== tid ? l : { ...l, ...data }))
             }}
             handleGuardar={handleGuardarLiq}
-            onBack={() => { setModoLiq('lista'); setEditJornadaId(null) }}
+            onBack={() => { setModoLiq('lista'); setEditJornadaId(null); _setLiquidaciones([]); setActiveTrabajadorId(null) }}
             isEditing={modoLiq === 'editar'}
           />
         ) : (
           <LiquidacionLista jornadas={jornadas} confirmDelete={confirmDeleteJ}
             setConfirmDelete={setConfirmDeleteJ} handleEliminar={handleEliminarJ}
-            onNueva={() => { setSesion(nextSesion()); setEditJornadaId(null); setModoLiq('nueva') }}
+            onNueva={() => { setSesion(nextSesion()); setEditJornadaId(null); setModoLiq('nueva'); _setLiquidaciones([]); setActiveTrabajadorId(null) }}
             onEditar={editarJornada}
+            onQuitarResaltado={quitarResaltadoHistorial}
             productos={productos} trabajadores={trabajadores} guardarJornada={guardarJornada}
             agregarTrabajador={agregarTrabajador} agregarProducto={agregarProducto} />
         )
@@ -890,15 +939,17 @@ export default function Liquidacion({
 
 
 
-function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva, onEditar, productos, trabajadores, guardarJornada, agregarTrabajador, agregarProducto }: {
+function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEliminar, onNueva, onEditar, onQuitarResaltado, productos, trabajadores, guardarJornada, agregarTrabajador, agregarProducto }: {
   jornadas: Jornada[]; confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNueva: () => void; onEditar: (j: Jornada) => void
+  onQuitarResaltado: (j: Jornada, trabajadorId: string, tipo: TipoPago) => void
   productos: Producto[]; trabajadores: Trabajador[]
   guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
   agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
 }) {
   const isReadOnly = useIsReadOnly()
+  const coloresPago = getColoresPago()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
@@ -971,7 +1022,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                   </div>
                   <div className="flex items-center gap-3 sm:gap-4 ml-auto">
                     <span className="text-xs sm:text-sm text-[#FFE66D] font-medium">{fmtCOP(j.totalVendido)}</span>
-                    <span className={`text-xs sm:text-sm font-bold ${j.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtCOP(j.saldo)}</span>
+                    <span className={`text-xs sm:text-sm font-bold ${j.saldo <= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtSaldo(j.saldo)}</span>
                     <Chevron expanded={expanded} />
                   </div>
                 </div>
@@ -981,7 +1032,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                     <div className="space-y-3 mb-4">
                       {j.liquidaciones?.map((liq, i) => {
                         const c = calcularLiquidacion(liq)
-                        const efectivo = c.efectivo
+                        const efectivo = liq.nombre === 'Barra' ? (liq.efectivoEntregado ?? c.efectivo) : c.efectivo
                         return (
                           <div key={i} className="p-3 rounded-lg bg-white/[0.03]">
                             <div className="flex items-center gap-2 mb-2">
@@ -991,16 +1042,27 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                             </div>
                             <div className="ml-9 space-y-0.5 text-xs">
                               <div className="flex justify-between"><span className="text-white/40">Total Venta</span><span className="text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span></div>
-                              {c.totalDatafono > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Datafono</span><span className="text-white/50">-{fmtFull(c.totalDatafono)}</span></div>}
-                              {c.totalQR > 0 && <div className="flex justify-between"><span className="text-white/30">(-) QR</span><span className="text-white/50">-{fmtFull(c.totalQR)}</span></div>}
-                              {c.totalNequi > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Nequi</span><span className="text-white/50">-{fmtFull(c.totalNequi)}</span></div>}
-                              {c.totalVales > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Vales</span><span className="text-white/50">-{fmtFull(c.totalVales)}</span></div>}
-                              {c.totalCortesias > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Cortesias</span><span className="text-white/50">-{fmtFull(c.totalCortesias)}</span></div>}
+                              {c.totalDatafono > 0 && <PagoResaltadoRow j={j} liq={liq} tipo="Datafono" label="Datafono" total={c.totalDatafono} coloresPago={coloresPago} isReadOnly={isReadOnly} onQuitarResaltado={onQuitarResaltado} />}
+                              {c.totalQR > 0 && <PagoResaltadoRow j={j} liq={liq} tipo="QR" label="QR" total={c.totalQR} coloresPago={coloresPago} isReadOnly={isReadOnly} onQuitarResaltado={onQuitarResaltado} />}
+                              {c.totalNequi > 0 && <PagoResaltadoRow j={j} liq={liq} tipo="Nequi" label="Nequi" total={c.totalNequi} coloresPago={coloresPago} isReadOnly={isReadOnly} onQuitarResaltado={onQuitarResaltado} />}
+                              {c.totalVales > 0 && <div className="flex justify-between"><span style={{ color: coloresPago.Vales }}>(-) Vales</span><span style={{ color: coloresPago.Vales, opacity: 0.6 }}>-{fmtFull(c.totalVales)}</span></div>}
+                              {c.totalCortesias > 0 && <div className="flex justify-between"><span style={{ color: '#CDA52F' }}>(-) Cortesias</span><span style={{ color: '#CDA52F', opacity: 0.6 }}>-{fmtFull(c.totalCortesias)}</span></div>}
                               {c.totalGastos > 0 && <div className="flex justify-between"><span className="text-white/30">(-) Gastos</span><span className="text-white/50">-{fmtFull(c.totalGastos)}</span></div>}
                               <div className="flex justify-between pt-1 mt-1 border-t border-white/[0.07]">
                                 <span className="font-bold text-[#CDA52F]">EFECTIVO</span>
                                 <span className="font-bold text-[#CDA52F]">{fmtFull(efectivo)}</span>
                               </div>
+                              {liq.nombre !== 'Barra' && c.saldo === 0 && (
+                                <div className="flex justify-end pt-0.5">
+                                  <span className="text-[10px] text-[#60A5FA] font-bold">✓</span>
+                                </div>
+                              )}
+                              {liq.nombre === 'Barra' && c.saldo !== 0 && (
+                                <div className="flex justify-between pt-1">
+                                  <span className="text-white/30">Saldo</span>
+                                  <span className={`font-bold ${c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{c.saldo > 0 ? '+' : ''}{fmtFull(c.saldo)}</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )
@@ -1008,11 +1070,10 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
                     </div>
 
                     <div className="rounded-lg bg-white/[0.02] border border-white/[0.05] p-3">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="flex items-center justify-between text-xs">
                         <div><p className="text-white/30 mb-0.5">Vendido</p><p className="text-[#FFE66D] font-bold">{fmtFull(j.totalVendido)}</p></div>
-                        <div><p className="text-white/30 mb-0.5">Esperado</p><p className="text-white font-medium">{fmtFull(esperado)}</p></div>
                         <div><p className="text-white/30 mb-0.5">Recibido</p><p className="text-[#4ECDC4] font-bold">{fmtFull(j.totalRecibido)}</p></div>
-                        <div><p className="text-white/30 mb-0.5">Saldo</p><p className={`font-bold text-base ${j.saldo === 0 ? 'text-[#60A5FA]' : j.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(j.saldo)}</p></div>
+                        <div className="text-right"><p className="text-white/30 mb-0.5">Saldo</p><p className={`font-bold text-base ${j.saldo === 0 ? 'text-[#60A5FA]' : j.saldo < 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtSaldo(j.saldo)}</p></div>
                       </div>
                     </div>
 
@@ -1048,6 +1109,40 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
 
 
 
+function PagoResaltadoRow({ j, liq, tipo, label, total, coloresPago, isReadOnly, onQuitarResaltado }: {
+  j: Jornada
+  liq: LiquidacionTrabajador
+  tipo: TipoPago
+  label: string
+  total: number
+  coloresPago: Record<string, string>
+  isReadOnly: boolean
+  onQuitarResaltado: (j: Jornada, trabajadorId: string, tipo: TipoPago) => void
+}) {
+  const resaltado = resaltadoMasFuerte(liq.transacciones || [], tipo)
+  const resColor = resaltado ? RESALTADO_COLORS[resaltado] : null
+  return (
+    <div className="flex justify-between items-center">
+      <span style={{ color: coloresPago[tipo] }}>(-) {label}</span>
+      <span className="flex items-center gap-1.5">
+        {resColor && (
+          <>
+            <span className="w-2 h-2 rounded-full inline-block shrink-0"
+              style={{ backgroundColor: resColor }}
+              title={`Resaltado ${resaltado}`} />
+            {!isReadOnly && (
+              <button onClick={() => onQuitarResaltado(j, liq.trabajadorId, tipo)}
+                title="Quitar resaltado"
+                className="text-[10px] text-white/30 hover:text-white/80 leading-none shrink-0">&times;</button>
+            )}
+          </>
+        )}
+        <span style={{ color: coloresPago[tipo], opacity: 0.6 }}>-{fmtFull(total)}</span>
+      </span>
+    </div>
+  )
+}
+
 function LiquidacionNueva({
   trabajadores, liquidaciones, activeTrabajadorId,
   sesion, fecha, fechaDuplicada, guardando, formValido, cuadreDia,
@@ -1055,7 +1150,7 @@ function LiquidacionNueva({
   setSesion, setFecha, handleTabClick, handleTabDblClick,
   updateEfectivoEntregado, updateTotalVentaManual,
   updateLineaCantidad,
-  updateTransaccion, addTransaccion, removeTransaccion,
+  updateTransaccion, setResaltadoTransaccion, addTransaccion, removeTransaccion,
   updateVale, addVale, removeVale,
   updateCortesia, addCortesia, removeCortesia,
   updateGasto, addGasto, removeGasto,
@@ -1074,6 +1169,7 @@ function LiquidacionNueva({
   updateTotalVentaManual: (tid: string, total: number) => void
   updateLineaCantidad: (tid: string, productoId: string, cantidad: number) => void
   updateTransaccion: (tid: string, idx: number, field: 'concepto' | 'monto', value: string | number) => void
+  setResaltadoTransaccion: (tid: string, idx: number, color: ColorResaltado | null) => void
   addTransaccion: (tid: string, tipo: TipoPago) => void
   removeTransaccion: (tid: string, idx: number) => void
   updateVale: (tid: string, idx: number, field: 'tercero' | 'monto', value: string | number) => void
@@ -1184,9 +1280,9 @@ function LiquidacionNueva({
                 <span className="text-[10px] text-white/40">Recibido</span>
                 <span className="text-xs text-[#4ECDC4] font-bold">{fmtCOP(cuadreDia.totalRecibido)}</span>
               </div>
-              <div className={`flex gap-2 items-center shrink-0 px-3 py-2 rounded-lg border ${cuadreDia.saldo === 0 ? 'border-[#60A5FA]/15 bg-[#60A5FA]/[0.03]' : cuadreDia.saldo > 0 ? 'border-[#4ECDC4]/15 bg-[#4ECDC4]/[0.03]' : 'border-[#FF5050]/15 bg-[#FF5050]/[0.03]'}`}>
+              <div className={`flex gap-2 items-center shrink-0 px-3 py-2 rounded-lg border ${cuadreDia.saldo === 0 ? 'border-[#60A5FA]/15 bg-[#60A5FA]/[0.03]' : cuadreDia.saldo < 0 ? 'border-[#4ECDC4]/15 bg-[#4ECDC4]/[0.03]' : 'border-[#FF5050]/15 bg-[#FF5050]/[0.03]'}`}>
                 <span className="text-[10px] text-white/40">Saldo</span>
-                <span className={`text-xs font-bold ${cuadreDia.saldo === 0 ? 'text-[#60A5FA]' : cuadreDia.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtFull(cuadreDia.saldo)}</span>
+                <span className={`text-xs font-bold ${cuadreDia.saldo === 0 ? 'text-[#60A5FA]' : cuadreDia.saldo < 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>{fmtSaldo(cuadreDia.saldo)}</span>
               </div>
             </div>
           )}
@@ -1205,11 +1301,11 @@ function LiquidacionNueva({
                   </div>
                   <div className="ml-9 flex items-center justify-between">
                     <span className="text-xs text-[#FFE66D] font-bold">{fmtCOP(c.totalVenta)}</span>
-                    {c.totalVenta > 0 && (
-                      <span className={`text-[10px] font-bold ${c.saldo === 0 ? 'text-[#60A5FA]' : c.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>
-                        {c.saldo === 0 ? '\u2713' : fmtCOP(c.saldo)}
-                      </span>
-                    )}
+                      {c.totalVenta > 0 && (
+                        liq.nombre === 'Barra'
+                          ? <span className={`text-[10px] font-bold ${c.saldo > 0 ? 'text-[#4ECDC4]' : c.saldo < 0 ? 'text-[#FF5050]' : 'text-[#60A5FA]'}`}>{c.saldo === 0 ? '$0' : (c.saldo > 0 ? '+' : '') + fmtFull(c.saldo)}</span>
+                          : <span className="text-[10px] font-bold text-[#60A5FA]">✓</span>
+                      )}
                   </div>
                 </button>
               )
@@ -1224,7 +1320,7 @@ function LiquidacionNueva({
                   <div className="border-t border-white/5 my-1" />
                   <div className="flex justify-between font-bold">
                     <span className="text-white/60">Saldo</span>
-                    <span className={cuadreDia.saldo === 0 ? 'text-[#60A5FA]' : cuadreDia.saldo > 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}>{fmtFull(cuadreDia.saldo)}</span>
+                    <span className={cuadreDia.saldo === 0 ? 'text-[#60A5FA]' : cuadreDia.saldo < 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}>{fmtSaldo(cuadreDia.saldo)}</span>
                   </div>
                 </div>
               </div>
@@ -1435,7 +1531,7 @@ function LiquidacionNueva({
             {TIPOS_PAGO.map(tipo => {
               const entries = activeLiq.transacciones.map((t, idx) => ({ ...t, idx })).filter(t => t.tipo === tipo)
               const totalTipo = entries.reduce((s, t) => s + t.monto, 0)
-              const color = COLORES_PAGO[tipo] || '#4ECDC4'
+              const color = getColoresPago()[tipo] || '#4ECDC4'
               return (
                 <Card key={tipo} className="mb-4">
                   <div className="flex items-center justify-between mb-3">
@@ -1446,16 +1542,42 @@ function LiquidacionNueva({
                   </div>
                   {entries.length === 0 && <p className="text-xs text-white/20 text-center py-2">Sin {tipo.toLowerCase()}</p>}
                   <div className="space-y-2">
-                    {entries.map(t => (
-                      <div key={t.idx} className="flex items-center gap-2">
-                        <input value={t.concepto || ''} onChange={e => updateTransaccion(activeLiq.trabajadorId, t.idx, 'concepto', e.target.value)}
-                          placeholder="Concepto"
-                          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-white/30 w-32" />
-                        <MoneyInput value={t.monto} onChange={v => updateTransaccion(activeLiq.trabajadorId, t.idx, 'monto', v)} placeholder="$0" />
-                        <button onClick={() => removeTransaccion(activeLiq.trabajadorId, t.idx)}
-                          className="text-[#FF5050]/60 hover:text-[#FF5050] text-lg leading-none shrink-0">&times;</button>
-                      </div>
-                    ))}
+                    {entries.map(t => {
+                      const resaltado = t.resaltado as ColorResaltado | null | undefined
+                      const resColor = resaltado ? RESALTADO_COLORS[resaltado] : null
+                      return (
+                        <div key={t.idx}
+                          className={`flex items-center gap-2 rounded-lg px-1.5 py-1 border transition-colors ${resColor ? '' : 'hover:bg-white/[0.02]'}`}
+                          style={resColor ? { backgroundColor: hexToRgba(resColor, 0.12), borderColor: hexToRgba(resColor, 0.4) } : { borderColor: 'transparent' }}>
+                          <input value={t.concepto || ''} onChange={e => updateTransaccion(activeLiq.trabajadorId, t.idx, 'concepto', e.target.value)}
+                            placeholder="Concepto"
+                            style={{ backgroundColor: resColor ? hexToRgba(resColor, 0.15) : hexToRgba(color, 0.06), borderColor: resColor ? hexToRgba(resColor, 0.5) : hexToRgba(color, 0.2) }}
+                            className="rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:outline-2 focus:outline-offset-0 w-32"
+                            onFocus={e => { e.target.style.outlineColor = resColor || hexToRgba(color, 0.5); e.target.style.borderColor = resColor || color }}
+                            onBlur={e => { e.target.style.outlineColor = 'transparent'; e.target.style.borderColor = resColor ? hexToRgba(resColor, 0.5) : hexToRgba(color, 0.2) }} />
+                          <MoneyInput value={t.monto} onChange={v => updateTransaccion(activeLiq.trabajadorId, t.idx, 'monto', v)} placeholder="$0" focusColor={resColor || color} />
+                          <div className="flex items-center gap-1 shrink-0">
+                            {RESALTADO_ORDEN.map(c => {
+                              const active = resaltado === c
+                              return (
+                                <button key={c} type="button" title={c}
+                                  onClick={() => setResaltadoTransaccion(activeLiq.trabajadorId, t.idx, active ? null : c)}
+                                  className="w-3.5 h-3.5 rounded-full transition-transform hover:scale-110 shrink-0"
+                                  style={{ backgroundColor: RESALTADO_COLORS[c], boxShadow: active ? `0 0 0 1.5px #141414, 0 0 0 3px ${RESALTADO_COLORS[c]}` : undefined }} />
+                              )
+                            })}
+                            {resaltado && (
+                              <button type="button" title="Quitar resaltado"
+                                onClick={() => setResaltadoTransaccion(activeLiq.trabajadorId, t.idx, null)}
+                                className="text-white/30 hover:text-white/80 text-sm leading-none px-0.5">&times;</button>
+                            )}
+                          </div>
+                          <button onClick={() => removeTransaccion(activeLiq.trabajadorId, t.idx)}
+                            style={{ color: hexToRgba(color, 0.5) }}
+                            className="hover:brightness-125 text-lg leading-none shrink-0">&times;</button>
+                        </div>
+                      )
+                    })}
                   </div>
                   {entries.length > 0 && (
                     <div className="border-t border-white/10 mt-2 pt-2 flex justify-between text-sm">
@@ -1467,11 +1589,13 @@ function LiquidacionNueva({
               )
             })}
 
+            {(() => { const cV = getColoresPago().Vales; return (
             <Card className="mb-4">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-medium uppercase tracking-wider" style={{ color: '#C3B1E1' }}>Vales</p>
+                <p className="text-xs font-medium uppercase tracking-wider" style={{ color: cV }}>Vales</p>
                 <button onClick={() => addVale(activeLiq.trabajadorId)}
-                  className="text-xs px-2 py-1 rounded bg-[#C3B1E1]/10 text-[#C3B1E1] hover:bg-[#C3B1E1]/20 transition">+ Agregar</button>
+                  style={{ backgroundColor: hexToRgba(cV, 0.1), color: cV }}
+                  className="text-xs px-2 py-1 rounded hover:brightness-125 transition">+ Agregar</button>
               </div>
               {activeLiq.vales.length === 0 && <p className="text-xs text-white/20 text-center py-2">Sin vales</p>}
               <div className="space-y-2">
@@ -1479,20 +1603,25 @@ function LiquidacionNueva({
                   <div key={i} className="flex items-center gap-2">
                     <input value={v.tercero} onChange={e => updateVale(activeLiq.trabajadorId, i, 'tercero', e.target.value)}
                       placeholder="Nombre 3ero"
-                      className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-[#C3B1E1]/50 w-32" />
-                    <MoneyInput value={v.monto} onChange={val => updateVale(activeLiq.trabajadorId, i, 'monto', val)} placeholder="$0" />
+                      style={{ backgroundColor: hexToRgba(cV, 0.06), borderColor: hexToRgba(cV, 0.2) }}
+                      className="rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:outline-2 focus:outline-offset-0 w-32"
+                      onFocus={e => { e.target.style.outlineColor = hexToRgba(cV, 0.5); e.target.style.borderColor = cV }}
+                      onBlur={e => { e.target.style.outlineColor = 'transparent'; e.target.style.borderColor = hexToRgba(cV, 0.2) }} />
+                    <MoneyInput value={v.monto} onChange={val => updateVale(activeLiq.trabajadorId, i, 'monto', val)} placeholder="$0" focusColor={cV} />
                     <button onClick={() => removeVale(activeLiq.trabajadorId, i)}
-                      className="text-[#FF5050]/60 hover:text-[#FF5050] text-lg leading-none shrink-0">&times;</button>
+                      style={{ color: hexToRgba(cV, 0.5) }}
+                      className="hover:brightness-125 text-lg leading-none shrink-0">&times;</button>
                   </div>
                 ))}
               </div>
               {activeLiq.vales.length > 0 && (
                 <div className="border-t border-white/10 mt-2 pt-2 flex justify-between text-sm">
                   <span className="text-white/45">Total Vales</span>
-                  <span className="text-[#C3B1E1] font-bold">{fmtFull(activeLiq.vales.reduce((s, v) => s + v.monto, 0))}</span>
+                  <span className="font-bold" style={{ color: cV }}>{fmtFull(activeLiq.vales.reduce((s, v) => s + v.monto, 0))}</span>
                 </div>
               )}
             </Card>
+            )})()}
 
             <Card className="mb-4">
               <div className="flex items-center justify-between mb-3">
@@ -1550,22 +1679,26 @@ function LiquidacionNueva({
 
             {(() => {
               const c = calcularLiquidacion(activeLiq)
+              const cP = getColoresPago()
               return (
                 <Card className="mb-4 border-[#CDA52F]/15">
                   <p className="text-xs text-white/40 font-medium mb-3 uppercase tracking-wider">Cuadre De {activeLiq.nombre}</p>
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between"><span className="text-white/45">Total Venta</span><span className="text-[#FFE66D] font-bold">{fmtFull(c.totalVenta)}</span></div>
-                    {c.totalDatafono > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Datafono</span><span className="text-white/60">-{fmtFull(c.totalDatafono)}</span></div>}
-                    {c.totalQR > 0 && <div className="flex justify-between"><span className="text-white/45">(-) QR</span><span className="text-white/60">-{fmtFull(c.totalQR)}</span></div>}
-                    {c.totalNequi > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Nequi</span><span className="text-white/60">-{fmtFull(c.totalNequi)}</span></div>}
-                    {c.totalVales > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Vales</span><span className="text-white/60">-{fmtFull(c.totalVales)}</span></div>}
-                    {c.totalCortesias > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Cortesias</span><span className="text-white/60">-{fmtFull(c.totalCortesias)}</span></div>}
+                    {c.totalDatafono > 0 && <div className="flex justify-between"><span style={{ color: cP.Datafono }}>(-) Datafono</span><span style={{ color: cP.Datafono, opacity: 0.6 }}>-{fmtFull(c.totalDatafono)}</span></div>}
+                    {c.totalQR > 0 && <div className="flex justify-between"><span style={{ color: cP.QR }}>(-) QR</span><span style={{ color: cP.QR, opacity: 0.6 }}>-{fmtFull(c.totalQR)}</span></div>}
+                    {c.totalNequi > 0 && <div className="flex justify-between"><span style={{ color: cP.Nequi }}>(-) Nequi</span><span style={{ color: cP.Nequi, opacity: 0.6 }}>-{fmtFull(c.totalNequi)}</span></div>}
+                    {c.totalVales > 0 && <div className="flex justify-between"><span style={{ color: cP.Vales }}>(-) Vales</span><span style={{ color: cP.Vales, opacity: 0.6 }}>-{fmtFull(c.totalVales)}</span></div>}
+                    {c.totalCortesias > 0 && <div className="flex justify-between"><span style={{ color: '#CDA52F' }}>(-) Cortesias</span><span style={{ color: '#CDA52F', opacity: 0.6 }}>-{fmtFull(c.totalCortesias)}</span></div>}
                     {c.totalGastos > 0 && <div className="flex justify-between"><span className="text-white/45">(-) Gastos</span><span className="text-white/60">-{fmtFull(c.totalGastos)}</span></div>}
                     <div className="border-t border-white/10 my-1" />
-                    <div className={`flex justify-between text-lg font-bold mt-1 px-3 py-2 rounded-lg ${c.efectivo >= 0 ? 'bg-[#CDA52F]/10' : 'bg-[#FF5050]/10'}`}>
-                      <span className={c.efectivo >= 0 ? 'text-[#CDA52F]' : 'text-[#FF5050]'}>EFECTIVO</span>
-                      <span className={c.efectivo >= 0 ? 'text-[#CDA52F]' : 'text-[#FF5050]'}>{fmtFull(c.efectivo)}</span>
+                    {(() => { const cE = getColoresPago().Efectivo; return (
+                    <div className="flex justify-between text-lg font-bold mt-1 px-3 py-2 rounded-lg"
+                      style={{ backgroundColor: c.efectivo >= 0 ? hexToRgba(cE, 0.1) : 'rgba(255,80,80,0.1)' }}>
+                      <span style={{ color: c.efectivo >= 0 ? cE : '#FF5050' }}>EFECTIVO</span>
+                      <span style={{ color: c.efectivo >= 0 ? cE : '#FF5050' }}>{fmtFull(c.efectivo)}</span>
                     </div>
+                    )})()}
                   </div>
                 </Card>
               )
@@ -1647,22 +1780,22 @@ function InventarioNuevo({ fecha, setFecha, lineas, totalGeneral, actualizarLine
                 <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.salidas || ''} onChange={e => actualizarLinea(idx, 'salidas', e.target.value)}
-                    onKeyDown={handleTableArrowNav}
+                    onKeyDown={handleTableArrowNav} onWheel={e => e.currentTarget.blur()}
                     className="bg-white/5 border border-[#FF5050]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#FF5050]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.invInicial || ''} onChange={e => actualizarLinea(idx, 'invInicial', e.target.value)}
-                    onKeyDown={handleTableArrowNav}
+                    onKeyDown={handleTableArrowNav} onWheel={e => e.currentTarget.blur()}
                     className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#CDA52F]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.entradas || ''} onChange={e => actualizarLinea(idx, 'entradas', e.target.value)}
-                    onKeyDown={handleTableArrowNav}
+                    onKeyDown={handleTableArrowNav} onWheel={e => e.currentTarget.blur()}
                     className="bg-white/5 border border-[#4ECDC4]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#4ECDC4]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.invFisico || ''} onChange={e => actualizarLinea(idx, 'invFisico', e.target.value)}
-                    onKeyDown={handleTableArrowNav}
+                    onKeyDown={handleTableArrowNav} onWheel={e => e.currentTarget.blur()}
                     className="bg-white/5 border border-[#CDA52F]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#CDA52F]/50" />
                 </td>
                 <td className={`py-2 px-1 text-center text-xs font-bold ${l.saldo >= 0 ? 'text-[#FFE66D]' : 'text-[#FF5050]'}`}>{l.saldo}</td>
@@ -1885,12 +2018,12 @@ function ComparativoNuevo({ fecha, fechaHasta, onChangeRango, lineas, totalConte
                 <td className="py-2 pr-2 text-white/80 text-xs">{l.nombre}</td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.conteo || ''} onChange={e => actualizarLinea(idx, 'conteo', e.target.value)}
-                    onKeyDown={handleTableArrowNav}
+                    onKeyDown={handleTableArrowNav} onWheel={e => e.currentTarget.blur()}
                     className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#CDA52F]/50" />
                 </td>
                 <td className="py-1 px-1">
                   <input type="number" min={0} value={l.tiquets || ''} onChange={e => actualizarLinea(idx, 'tiquets', e.target.value)}
-                    onKeyDown={handleTableArrowNav}
+                    onKeyDown={handleTableArrowNav} onWheel={e => e.currentTarget.blur()}
                     className="bg-white/5 border border-[#4ECDC4]/20 rounded px-2 py-1 text-xs text-white w-full text-center focus:outline-none focus:border-[#4ECDC4]/50" />
                 </td>
                 <td className="py-2 px-1 text-center">
@@ -1932,6 +2065,61 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [localesCount, setLocalesCount] = useState(0)
+  const [migrando, setMigrando] = useState(false)
+
+  useEffect(() => {
+    db.comparativos.count().then(setLocalesCount).catch(() => setLocalesCount(0))
+  }, [])
+
+  const migrarLocales = async () => {
+    if (migrando) return
+    setMigrando(true)
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    try {
+      const locales = await db.comparativos.toArray()
+      const pendientes = locales.filter((c: any) => !comparativos.some(ex => ex.fecha === c.fecha))
+      let ok = 0
+      const fallidos: string[] = []
+      for (const c of pendientes) {
+        try {
+          const lineas = (c.lineas || [])
+            .map((l: any) => ({
+              productoId: String(l.productoId), nombre: l.nombre, conteo: l.conteo ?? 0, tiquets: l.tiquets ?? 0,
+              diferencia: (l.tiquets ?? 0) - (l.conteo ?? 0),
+            }))
+            .filter((l: any) => UUID_RE.test(l.productoId))
+          if (lineas.length === 0) {
+            fallidos.push(`${c.fecha}: sin líneas con productoId UUID válido`)
+            continue
+          }
+          await guardarComparativo({
+            fecha: c.fecha,
+            fechaHasta: c.fechaHasta ?? c.fecha,
+            lineas,
+            totalConteo: c.totalConteo ?? 0,
+            totalTiquets: c.totalTiquets ?? 0,
+          })
+          ok++
+          await db.comparativos.delete(c.id)
+        } catch (e: any) {
+          fallidos.push(`${c.fecha}: ${e?.message ?? 'error'}`)
+        }
+      }
+      setLocalesCount(await db.comparativos.count())
+      if (fallidos.length > 0) {
+        alert(`Migrados ${ok}/${pendientes.length} a Neon. Fallaron:\n${fallidos.join('\n')}`)
+      } else if (pendientes.length > 0) {
+        alert(`Migrados ${ok} comparativos a Neon correctamente.`)
+      } else {
+        alert('No hay comparativos locales pendientes de migrar.')
+      }
+    } catch (e: any) {
+      alert(`Error al migrar: ${e?.message ?? 'desconocido'}`)
+    } finally {
+      setMigrando(false)
+    }
+  }
   const filtrados = comparativos.filter(c => {
     if (desde && c.fecha < desde) return false
     if (hasta && c.fecha > hasta) return false
@@ -1961,6 +2149,11 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
         <DateRangeFilter desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} total={comparativos.length} filtrados={filtrados.length} />
         {!isReadOnly && (
           <div className="flex gap-2 w-full sm:w-auto shrink-0">
+            {localesCount > 0 && (
+              <Btn variant="ghost" onClick={migrarLocales} disabled={migrando} className="flex-1 sm:flex-initial">
+                {migrando ? 'Migrando...' : `Migrar ${localesCount} local${localesCount === 1 ? '' : 'es'} a Neon`}
+              </Btn>
+            )}
             <Btn variant="ghost" onClick={() => setShowImport(true)} className="flex-1 sm:flex-initial">
               Importar Excel
             </Btn>
@@ -2081,22 +2274,25 @@ function calcSemanaData(jornadasSem: Jornada[], totalInventario: number) {
   }
   const resumen = jornadasSem.map(j => { const c = calcularCuadreDia(j.liquidaciones || []); return { sesion: j.sesion, fecha: j.fecha, id: j.id, ventaTotal: c.totalVendido, gastos: c.totalGastos, datafono: c.pagos.Datafono, qr: c.pagos.QR, nequi: c.pagos.Nequi, vales: c.pagos.Vales, cortesias: c.totalCortesias, efectivo: c.pagos.Efectivo, totalRecibido: c.totalRecibido, saldo: c.totalVendido - c.totalRecibido } })
   const s = (k: string) => resumen.reduce((a, r) => a + ((r as any)[k] || 0), 0)
-  const tot = { ventaTotal: s('ventaTotal'), gastos: s('gastos'), datafono: s('datafono'), qr: s('qr'), nequi: s('nequi'), vales: s('vales'), cortesias: s('cortesias'), efectivo: s('efectivo'), totalRecibido: s('totalRecibido'), saldo: s('totalRecibido') - totalInventario }
+  const tot = { ventaTotal: s('ventaTotal'), gastos: s('gastos'), datafono: s('datafono'), qr: s('qr'), nequi: s('nequi'), vales: s('vales'), cortesias: s('cortesias'), efectivo: s('efectivo'), totalRecibido: s('totalRecibido'), saldo: totalInventario - s('totalRecibido') }
   return { trabajadores: Array.from(tMap.values()), resumen, tot }
 }
 
-const FILAS_SEM: { key: string; label: string; color: string; bold?: boolean; isSaldo?: boolean }[] = [
-  { key: 'ventaTotal', label: 'Venta Total', color: '#FFE66D', bold: true },
-  { key: 'gastos', label: 'Gastos', color: '' },
-  { key: 'datafono', label: 'Datafono', color: '#A8E6CF' },
-  { key: 'qr', label: 'QR', color: '#4ECDC4' },
-  { key: 'nequi', label: 'Nequi', color: '#FFE66D' },
-  { key: 'vales', label: 'Vales', color: '#C3B1E1' },
-  { key: 'cortesias', label: 'Cortesias', color: '' },
-  { key: 'efectivo', label: 'Efectivo Entregado', color: '#CDA52F' },
-  { key: 'totalRecibido', label: 'Total', color: '#4ECDC4', bold: true },
-  { key: 'saldo', label: 'Saldo a Favor o en contra', color: '', isSaldo: true },
-]
+function getFILAS_SEM(): { key: string; label: string; color: string; bold?: boolean; isSaldo?: boolean }[] {
+  const c = getColoresPago()
+  return [
+    { key: 'ventaTotal', label: 'Venta Total', color: '#FFE66D', bold: true },
+    { key: 'gastos', label: 'Gastos', color: '' },
+    { key: 'datafono', label: 'Datafono', color: c.Datafono },
+    { key: 'qr', label: 'QR', color: c.QR },
+    { key: 'nequi', label: 'Nequi', color: c.Nequi },
+    { key: 'vales', label: 'Vales', color: c.Vales },
+    { key: 'cortesias', label: 'Cortesias', color: '' },
+    { key: 'efectivo', label: 'Efectivo Entregado', color: c.Efectivo },
+    { key: 'totalRecibido', label: 'Total', color: '#4ECDC4', bold: true },
+    { key: 'saldo', label: 'Saldo a Favor o en contra', color: '', isSaldo: true },
+  ]
+}
 
 function LiquidacionSemana({
   jornadas, inventarios, productos, trabajadores, guardarJornada, agregarTrabajador, agregarProducto,
@@ -2459,7 +2655,7 @@ function LiquidacionSemana({
                   </tr>
                 </thead>
                 <tbody>
-                  {FILAS_SEM.filter(f => f.key !== 'ventaTotal' && !f.isSaldo).map(f => {
+                  {getFILAS_SEM().filter(f => f.key !== 'ventaTotal' && !f.isSaldo).map(f => {
                     const vals = d.resumen.map(r => ((r as any)[f.key] as number) ?? 0)
                     const total = ((d.tot as any)[f.key] as number) ?? 0
                     const isTotal = f.key === 'totalRecibido'
@@ -2485,7 +2681,7 @@ function LiquidacionSemana({
           </Card>
 
           {/* Inventario */}
-          {jornadasVisibles.length > 1 && (
+          {jornadasVisibles.length > 0 && (
             <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-[10px] text-white/25 uppercase tracking-wider font-bold mb-4">Inventario</p>
               <div className="w-full space-y-2">
@@ -2506,15 +2702,15 @@ function LiquidacionSemana({
           )}
 
           {/* Saldo Total */}
-          {jornadasVisibles.length > 1 && (() => {
-            const color = d.tot.saldo === 0 ? '#60A5FA' : d.tot.saldo < 0 ? '#FF5050' : '#4ECDC4'
+          {jornadasVisibles.length > 0 && (() => {
+            const color = d.tot.saldo === 0 ? '#60A5FA' : d.tot.saldo < 0 ? '#4ECDC4' : '#FF5050'
             return (
               <div className="rounded-xl p-4" style={{ background: 'rgba(205,165,47,0.06)', border: '1px solid rgba(205,165,47,0.15)' }}>
                 <p className="text-[10px] text-white/25 uppercase tracking-wider font-bold mb-3">Saldo</p>
                 <div className="flex gap-3 flex-wrap">
                   <div className="flex-1 min-w-[120px] text-center py-2 px-3 rounded-lg" style={{ background: 'rgba(205,165,47,0.04)' }}>
                     <p className="text-[10px] text-[#CDA52F]/60 mb-1">Saldo Total</p>
-                    <p className="text-base font-extrabold" style={{ color }}>{fmtCOP(d.tot.saldo)}</p>
+                    <p className="text-base font-extrabold" style={{ color }}>{fmtSaldo(d.tot.saldo)}</p>
                   </div>
                 </div>
               </div>
@@ -2550,7 +2746,7 @@ const LineaProductoRow = React.memo(function LineaProductoRow({
             className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">-</button>
           <input type="number" min={0} value={linea.cantidad || ''}
             onChange={e => onUpdate(trabajadorId, linea.productoId, Number(e.target.value) || 0)}
-            onKeyDown={onArrowNav}
+            onKeyDown={onArrowNav} onWheel={e => e.currentTarget.blur()}
             className="bg-white/5 border border-white/10 rounded px-1 py-1 text-xs text-white w-12 text-center focus:outline-none focus:border-[#CDA52F]/50" />
           <button onClick={() => onUpdate(trabajadorId, linea.productoId, linea.cantidad + 1)}
             className="w-7 h-7 rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white flex items-center justify-center text-sm font-bold">+</button>

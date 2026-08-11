@@ -1,15 +1,12 @@
 import { useState } from 'react'
 import type { Jornada, Trabajador } from '../types'
 import { Card } from './ui/Card'
-import { fmtCOP, fmtFull, calcularLiquidacion } from '../lib/utils'
+import { fmtCOP, fmtFull, fmtSaldo, calcularLiquidacion } from '../lib/utils'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, CartesianGrid,
 } from 'recharts'
-
-const COLORES_PAGO: Record<string, string> = {
-  Efectivo: '#CDA52F', Datafono: '#A8E6CF', QR: '#4ECDC4', Nequi: '#FFE66D', Vales: '#C3B1E1',
-}
+import { getColoresPago, useColoresPago } from '../hooks/useColoresPago'
 
 interface Props { jornadas: Jornada[]; trabajadores: Trabajador[] }
 
@@ -34,6 +31,11 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
   const [hoveredTrabajador, setHoveredTrabajador] = useState<string | null>(null)
   const [showAllRanking, setShowAllRanking] = useState(false)
   const [showAllProductos, setShowAllProductos] = useState(false)
+  const [desdeInput, setDesdeInput] = useState('')
+  const [hastaInput, setHastaInput] = useState('')
+  const [desdeFiltro, setDesdeFiltro] = useState('')
+  const [hastaFiltro, setHastaFiltro] = useState('')
+  const { colores: COLORES_PAGO } = useColoresPago()
 
   if (jornadas.length === 0) {
     return (
@@ -44,26 +46,47 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
     )
   }
 
-  const jornadasFiltradas = jornadas
+  const jornadasFiltradas = desdeFiltro || hastaFiltro
+    ? jornadas.filter(j => {
+        if (desdeFiltro && j.fecha < desdeFiltro) return false
+        if (hastaFiltro && j.fecha > hastaFiltro) return false
+        return true
+      })
+    : jornadas
 
   const totalVendido = jornadasFiltradas.reduce((s, j) => s + j.totalVendido, 0)
   const totalRecibido = jornadasFiltradas.reduce((s, j) => s + j.totalRecibido, 0)
   const totalGastos = jornadasFiltradas.reduce((s, j) => s + j.cortesias + j.gastos, 0)
   const saldoGlobal = jornadasFiltradas.reduce((s, j) => s + j.saldo, 0)
 
-  const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-  const mesMap: Record<string, { vendido: number; recibido: number; orden: number }> = {}
-  jornadasFiltradas.forEach(j => {
-    const [anio, mes] = j.fecha.split('-')
-    const key = `${mesesNombres[Number(mes) - 1]} ${anio.slice(2)}`
-    const orden = Number(anio) * 100 + Number(mes)
-    if (!mesMap[key]) mesMap[key] = { vendido: 0, recibido: 0, orden }
-    mesMap[key].vendido += j.totalVendido
-    mesMap[key].recibido += j.totalRecibido
-  })
-  const chartData = Object.entries(mesMap)
-    .sort(([, a], [, b]) => a.orden - b.orden)
-    .map(([mes, d]) => ({ mes, Vendido: d.vendido, Recibido: d.recibido }))
+  const rangoDias = desdeFiltro && hastaFiltro ? Math.ceil((new Date(hastaFiltro).getTime() - new Date(desdeFiltro).getTime()) / (1000 * 60 * 60 * 24)) : Infinity
+  const verPorDia = rangoDias <= 31
+
+  const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  const chartData = verPorDia
+    ? jornadasFiltradas
+        .slice()
+        .sort((a, b) => a.fecha.localeCompare(b.fecha))
+        .map(j => {
+          const [anio, mes, dia] = j.fecha.split('-')
+          const label = `${dia} ${mesesNombres[Number(mes) - 1]}`
+          return { mes: label, Vendido: j.totalVendido, Recibido: j.totalRecibido }
+        })
+    : (() => {
+        const mesMap: Record<string, { vendido: number; recibido: number; orden: number }> = {}
+        jornadasFiltradas.forEach(j => {
+          const [anio, mes] = j.fecha.split('-')
+          const key = `${mesesNombres[Number(mes) - 1]} ${anio.slice(2)}`
+          const orden = Number(anio) * 100 + Number(mes)
+          if (!mesMap[key]) mesMap[key] = { vendido: 0, recibido: 0, orden }
+          mesMap[key].vendido += j.totalVendido
+          mesMap[key].recibido += j.totalRecibido
+        })
+        return Object.entries(mesMap)
+          .sort(([, a], [, b]) => a.orden - b.orden)
+          .map(([mes, d]) => ({ mes, Vendido: d.vendido, Recibido: d.recibido }))
+      })()
 
   const pagosMap: Record<string, number> = {}
   jornadasFiltradas.forEach(j => {
@@ -105,20 +128,43 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
 
   return (
     <div>
-      <h2 className="text-lg sm:text-xl font-bold mb-5">Dashboard</h2>
+      <h2 className="text-lg sm:text-xl font-bold">Dashboard</h2>
+
+      <div className="flex items-end gap-3 mb-5 mt-3 flex-wrap">
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-white/30 uppercase">Desde</label>
+          <input type="date" value={desdeInput} onChange={e => setDesdeInput(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#CDA52F]/50" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-white/30 uppercase">Hasta</label>
+          <input type="date" value={hastaInput} onChange={e => setHastaInput(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#CDA52F]/50" />
+        </div>
+        <button onClick={() => { setDesdeFiltro(desdeInput); setHastaFiltro(hastaInput) }}
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-[#CDA52F] text-black hover:bg-[#CDA52F]/80 transition-all">
+          Mostrar
+        </button>
+        <span className="text-[10px] text-white/30 pb-2">{jornadasFiltradas.length}/{jornadas.length} jornadas</span>
+        {(desdeFiltro || hastaFiltro) && (
+          <button onClick={() => { setDesdeInput(''); setHastaInput(''); setDesdeFiltro(''); setHastaFiltro('') }}
+            className="pb-2 text-[10px] text-[#CDA52F] hover:text-[#CDA52F]/70 transition-colors">
+            Limpiar
+          </button>
+        )}
+      </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 mb-5">
         {[
           { label: 'Total Vendido', value: totalVendido, color: '#CDA52F' },
           { label: 'Total Recibido', value: totalRecibido, color: '#4ECDC4' },
-          { label: 'Gastos + Cortesias', value: totalGastos, color: '#FFE66D' },
-          { label: 'Saldo Global', value: saldoGlobal, color: saldoGlobal === 0 ? '#60A5FA' : saldoGlobal > 0 ? '#4ECDC4' : '#FF5050' },
+          { label: 'Saldo Global', value: saldoGlobal, color: saldoGlobal === 0 ? '#60A5FA' : saldoGlobal < 0 ? '#4ECDC4' : '#FF5050' },
         ].map(k => (
           <Card key={k.label} className="!p-3 sm:!p-4">
             <p className="text-[10px] sm:text-[11px] text-white/40 mb-1 sm:mb-2">{k.label}</p>
-            <p className="text-lg sm:text-2xl font-bold" style={{ color: k.color }}>{fmtCOP(k.value)}</p>
-            <p className="text-[9px] sm:text-[10px] text-white/20 mt-0.5">{fmtFull(k.value)}</p>
+            <p className="text-lg sm:text-2xl font-bold" style={{ color: k.color }}>{k.label === 'Saldo Global' ? fmtSaldo(k.value) : fmtCOP(k.value)}</p>
+            <p className="text-[9px] sm:text-[10px] text-white/20 mt-0.5">{k.label === 'Saldo Global' ? fmtSaldo(k.value) : fmtFull(k.value)}</p>
           </Card>
         ))}
       </div>
@@ -126,7 +172,7 @@ export default function Dashboard({ jornadas, trabajadores }: Props) {
       {/* Area Chart */}
       <Card className="mb-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
-          <p className="text-xs sm:text-sm font-medium text-white/70">Rendimiento mensual</p>
+          <p className="text-xs sm:text-sm font-medium text-white/70">{verPorDia ? 'Rendimiento por jornada' : 'Rendimiento mensual'}</p>
           <div className="flex items-center gap-3 sm:gap-4">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-[#4ECDC4]" />

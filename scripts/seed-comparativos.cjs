@@ -1,5 +1,10 @@
 const http = require('http');
 
+const API_BASE = process.env.SEED_API_BASE || 'http://localhost:8081/api/disco';
+const LOGIN_USER = process.env.SEED_USER || '';
+const LOGIN_PASS = process.env.SEED_PASS || '';
+const NEGOCIO_ID = process.env.SEED_NEGOCIO_ID || '';
+
 const prodMap = {
   'Aguila Negra': 'b6395bd6-2645-409f-ab69-daa5381ac5c8',
   'Aguila Light': 'a03f33a7-4cb7-4d5c-bcae-169a33098fef',
@@ -53,7 +58,6 @@ const prodMap = {
   'Amper (obsequio)': 'dca6ac90-36d7-423e-9759-6da8d6f0a6bc',
 };
 
-
 const sem1 = [
   ['Aguila Negra',285,285],['Aguila Light',25,25],['Costeñita',342,342],['Budweiser',24,24],
   ['Coronita',345,345],['Club Colombia',33,33],['Heinekeen',4,4],['Stella Artois',0,0],
@@ -91,44 +95,82 @@ const sem2 = [
 ];
 
 function buildBody(fecha, data) {
-  const lineas = data.map(([nombre, conteo, tiquets]) => ({
-    productoId: 0,
-    nombre,
-    conteo: conteo || 0,
-    tiquets: tiquets || 0,
-    diferencia: (tiquets || 0) - (conteo || 0)
-  }));
+  const lineas = data.map(([nombre, conteo, tiquets]) => {
+    const productoId = prodMap[nombre];
+    if (!productoId) throw new Error(`Producto sin UUID mapeado: ${nombre}`);
+    return {
+      productoId,
+      nombre,
+      conteo: conteo || 0,
+      tiquets: tiquets || 0,
+      diferencia: (tiquets || 0) - (conteo || 0)
+    };
+  });
   return JSON.stringify({
     fecha,
+    fechaHasta: fecha,
     lineas,
     totalConteo: lineas.reduce((s, l) => s + l.conteo, 0),
     totalTiquets: lineas.reduce((s, l) => s + l.tiquets, 0)
   });
 }
 
-function post(body) {
+function request(path, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.request('http://localhost:8081/api/disco/management/comparativos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    }, res => {
+    const req = http.request(`${API_BASE}${path}`, { method, headers }, res => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => {
-       
-        if (res.statusCode !== 201);
-        resolve();
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(`${method} ${path} → ${res.statusCode}: ${d.slice(0, 300) || 'sin cuerpo'}`));
+          return;
+        }
+        let json = null;
+        try { json = d ? JSON.parse(d) : null; } catch { /* noop */ }
+        resolve(json);
       });
     });
     req.on('error', reject);
-    req.write(body);
+    if (body) req.write(body);
     req.end();
   });
 }
 
+async function login() {
+  if (!LOGIN_USER || !LOGIN_PASS) {
+    throw new Error('Define SEED_USER y SEED_PASS (usuario admin del disco) para autenticarse');
+  }
+  const data = await request('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: LOGIN_USER, password: LOGIN_PASS, rol: 'ADMINISTRADOR' }),
+  });
+  return data;
+}
+
 (async () => {
- 
-  await post(buildBody('2026-03-07', sem1));
-  await post(buildBody('2026-03-14', sem2));
-  
-})();
+  const session = await login();
+  const token = session?.accessToken;
+  if (!token) throw new Error('Login no devolvió accessToken');
+  const negocioId = NEGOCIO_ID || session?.negocioId;
+  if (!negocioId) throw new Error('No se pudo determinar negocioId — define SEED_NEGOCIO_ID');
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'X-Negocio-Id': negocioId,
+  };
+
+  const fechas = [
+    ['2026-03-07', sem1],
+    ['2026-03-14', sem2],
+  ];
+  for (const [fecha, data] of fechas) {
+    const res = await request('/management/comparativos', { method: 'POST', headers, body: buildBody(fecha, data) });
+    console.log('OK comparativo', fecha, '→ id:', res?.id);
+  }
+  console.log('Seed de comparativos completado.');
+})().catch(e => {
+  console.error('ERROR:', e.message);
+  process.exit(1);
+});

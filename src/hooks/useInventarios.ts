@@ -26,7 +26,7 @@ export function useInventarios() {
   const mapLineas = (lineas: InventarioInput['lineas']) =>
     lineas.map(l => ({
       productoId: l.productoId, nombre: l.nombre, valorUnitario: l.valorUnitario,
-      invInicial: l.invInicial, entradas: l.entradas, invFisico: l.invFisico, saldo: l.saldo, total: l.total,
+      salidas: l.salidas, invInicial: l.invInicial, entradas: l.entradas, invFisico: l.invFisico, saldo: l.saldo, total: l.total,
     }))
 
   const guardar = async (inventario: InventarioInput) => {

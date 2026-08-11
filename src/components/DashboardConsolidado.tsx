@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Card } from './ui/Card'
 import { DateRangeFilter } from './ui/DateRangeFilter'
-import { fmtCOP } from '../lib/utils'
+import { fmtCOP, fmtSaldo } from '../lib/utils'
 import { useConsolidado } from '../hooks/useConsolidado'
+import { useColoresPago } from '../hooks/useColoresPago'
 import type { NegocioInfo, RangoTemporal } from '../types'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LabelList,
@@ -12,20 +13,13 @@ import {
 
 type FiltroSeleccion = { tipo: 'TODOS' } | { negocioId: string }
 
-const COLORES_PAGO: Record<string, string> = {
-  Efectivo: '#FF6B35',
-  QR: '#4ECDC4',
-  Nequi: '#FFE66D',
-  Datafono: '#A8E6CF',
-  Vales: '#C3B1E1',
-}
-
 interface Props {
   onSelectNegocio?: (id: string, nombre: string, slug: string, color: string) => void
   negocios?: NegocioInfo[]
 }
 
 export default function DashboardConsolidado({ onSelectNegocio, negocios = [] }: Props = {}) {
+  const { colores: COLORES_PAGO } = useColoresPago()
   const [filtro, setFiltro] = useState<FiltroSeleccion>({ tipo: 'TODOS' })
   const [rango, setRango] = useState<RangoTemporal>('MES_ACTUAL')
   const [fechaDesde, setFechaDesde] = useState<string>('')
@@ -590,7 +584,7 @@ export default function DashboardConsolidado({ onSelectNegocio, negocios = [] }:
                 <div className="text-right shrink-0">
                   <p className="text-sm font-semibold text-white">{fmtCOP(n.totalVendido)}</p>
                   <p className={`text-[11px] ${n.saldo >= 0 ? 'text-[#4ECDC4]' : 'text-[#FF5050]'}`}>
-                    {n.saldo >= 0 ? '+' : ''}{fmtCOP(n.saldo)}
+                    {fmtSaldo(-n.saldo)}
                   </p>
                 </div>
                 {clickable && (
