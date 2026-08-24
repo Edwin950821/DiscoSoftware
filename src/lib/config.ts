@@ -1,4 +1,3 @@
-
 export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   (import.meta.env.DEV
@@ -30,17 +29,32 @@ function getNegocioActivo(): string | null {
 
 let sessionExpiredHandled = false
 
-function notifySessionExpired() {
+// LOG TEMPORAL - borrar después de diagnosticar
+function logDebug401(path: string, status: number) {
+  try {
+    const raw = localStorage.getItem('monastery_debug_401')
+    let log: unknown[] = []
+    try { log = JSON.parse(raw || '[]') } catch { log = [] }
+    if (!Array.isArray(log)) log = []
+    log.push({
+      path,
+      status,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      hadSession: !!readStoredSession(),
+    })
+    localStorage.setItem('monastery_debug_401', JSON.stringify(log.slice(-10)))
+  } catch { /* noop */ }
+}
+
+async function notifySessionExpired(path: string, status: number) {
   if (sessionExpiredHandled) return
   sessionExpiredHandled = true
-  try {
-    sessionStorage.setItem('monastery_session_expired', '1')
-    sessionStorage.removeItem('monastery_session')
-    localStorage.removeItem('monastery_session')
-    setTimeout(() => {
-      try { window.location.reload() } catch { /* noop */ }
-    }, 0)
-  } catch { /* noop */ }
+  logDebug401(path, status)
+  sessionStorage.setItem('monastery_session_expired', '1')
+  sessionStorage.removeItem('monastery_session')
+  localStorage.removeItem('monastery_session')
+  window.location.reload()
 }
 
 
@@ -58,9 +72,10 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     ...(options.headers as Record<string, string> || {}),
   }
   if (negocioActivo) headers['X-Negocio-Id'] = negocioActivo
-  const res = await fetch(path, { ...options, headers, credentials: 'include' })
+  const signal = options.signal ?? AbortSignal.timeout(30000)
+  const res = await fetch(path, { ...options, signal, headers, credentials: 'include' })
   if (res.status === 401 || res.status === 403) {
-    notifySessionExpired()
+    notifySessionExpired(path, res.status)
   }
   return res
 }
@@ -78,13 +93,11 @@ export function limpiarNegocioGhostSiNoExiste(): boolean {
       const valido = activo && negocios.some((n: { id: string }) => n.id === activo)
       if (!valido) {
         if (negocios.length > 0) {
-          // Auto-sanar: usar el primer negocio disponible
           parsed.negocioActivo = negocios[0].id
           const serialized = JSON.stringify(parsed)
           sessionStorage.setItem('monastery_session', serialized)
           localStorage.setItem('monastery_session', serialized)
         } else {
-          // Sin negocios en sesión: forzar re-login para obtener datos frescos
           sessionStorage.removeItem('monastery_session')
           localStorage.removeItem('monastery_session')
         }

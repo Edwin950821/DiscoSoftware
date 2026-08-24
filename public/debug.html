@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Debug 401</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #0f0; padding: 20px; font-size: 13px; }
+    pre { white-space: pre-wrap; word-break: break-all; }
+    button { margin-top: 12px; padding: 8px 16px; }
+  </style>
+</head>
+<body>
+  <h3>Log de sesiones expiradas (últimos 10)</h3>
+  <pre id="out">cargando...</pre>
+  <button onclick="localStorage.removeItem('monastery_debug_401'); location.reload()">Limpiar log</button>
+  <script>
+    const raw = localStorage.getItem('monastery_debug_401')
+    document.getElementById('out').textContent = raw
+      ? JSON.stringify(JSON.parse(raw), null, 2)
+      : 'Sin eventos registrados todavía.'
+  </script>
+</body>
+</html>
