@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Comparativo, ComparativoInput, LineaComparativo } from '../types'
+import { enqueueOp, isNetworkError, SYNC_EVENT } from '../lib/syncQueue'
 
 export function useComparativos() {
   const [comparativos, setComparativos] = useState<Comparativo[]>([])
@@ -39,6 +40,12 @@ export function useComparativos() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  useEffect(() => {
+    const handler = () => { fetchAll() }
+    window.addEventListener(SYNC_EVENT, handler)
+    return () => window.removeEventListener(SYNC_EVENT, handler)
+  }, [fetchAll])
+
   const mapLineas = (lineas: ComparativoInput['lineas']) =>
     lineas.map(l => ({
       productoId: l.productoId,
@@ -47,40 +54,69 @@ export function useComparativos() {
       tiquets: l.tiquets,
     }))
 
-  const guardar = async (comparativo: ComparativoInput) => {
-    const res = await apiFetch(`${API_MANAGEMENT}/comparativos`, {
-      method: 'POST',
-      body: JSON.stringify({
-        fecha: comparativo.fecha,
-        fechaHasta: comparativo.fechaHasta ?? comparativo.fecha,
-        lineas: mapLineas(comparativo.lineas),
-        totalConteo: comparativo.totalConteo,
-        totalTiquets: comparativo.totalTiquets,
-      }),
-    })
-    if (!res.ok) throw new Error(`Error al guardar comparativo: ${res.status}`)
-    await fetchAll()
+  const guardar = async (comparativo: ComparativoInput): Promise<{ queued?: boolean }> => {
+    const body = {
+      fecha: comparativo.fecha,
+      fechaHasta: comparativo.fechaHasta ?? comparativo.fecha,
+      lineas: mapLineas(comparativo.lineas),
+      totalConteo: comparativo.totalConteo,
+      totalTiquets: comparativo.totalTiquets,
+    }
+    try {
+      const res = await apiFetch(`${API_MANAGEMENT}/comparativos`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`Error al guardar comparativo: ${res.status}`)
+      await fetchAll()
+      return {}
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await enqueueOp({ tipo: 'comparativo', accion: 'crear', payload: body })
+        return { queued: true }
+      }
+      throw err
+    }
   }
 
-  const actualizar = async (id: string, comparativo: ComparativoInput) => {
-    const res = await apiFetch(`${API_MANAGEMENT}/comparativos/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        fecha: comparativo.fecha,
-        fechaHasta: comparativo.fechaHasta ?? comparativo.fecha,
-        lineas: mapLineas(comparativo.lineas),
-        totalConteo: comparativo.totalConteo,
-        totalTiquets: comparativo.totalTiquets,
-      }),
-    })
-    if (!res.ok) throw new Error(`Error al actualizar comparativo: ${res.status}`)
-    await fetchAll()
+  const actualizar = async (id: string, comparativo: ComparativoInput): Promise<{ queued?: boolean }> => {
+    const body = {
+      fecha: comparativo.fecha,
+      fechaHasta: comparativo.fechaHasta ?? comparativo.fecha,
+      lineas: mapLineas(comparativo.lineas),
+      totalConteo: comparativo.totalConteo,
+      totalTiquets: comparativo.totalTiquets,
+    }
+    try {
+      const res = await apiFetch(`${API_MANAGEMENT}/comparativos/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`Error al actualizar comparativo: ${res.status}`)
+      await fetchAll()
+      return {}
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await enqueueOp({ tipo: 'comparativo', accion: 'actualizar', targetId: id, payload: body })
+        return { queued: true }
+      }
+      throw err
+    }
   }
 
-  const eliminar = async (id: string) => {
-    const res = await apiFetch(`${API_MANAGEMENT}/comparativos/${id}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error(`Error al eliminar comparativo: ${res.status}`)
-    await fetchAll()
+  const eliminar = async (id: string): Promise<{ queued?: boolean }> => {
+    try {
+      const res = await apiFetch(`${API_MANAGEMENT}/comparativos/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`Error al eliminar comparativo: ${res.status}`)
+      await fetchAll()
+      return {}
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await enqueueOp({ tipo: 'comparativo', accion: 'eliminar', targetId: id })
+        return { queued: true }
+      }
+      throw err
+    }
   }
 
   return { comparativos, guardar, actualizar, eliminar }

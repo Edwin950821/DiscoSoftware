@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "keywords": [],
   "author": "Codfy SAS",
@@ -32,7 +36,11 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "bcryptjs": "^3.0.3",
-    "pg": "^8.20.0"
+    "jsdom": "^30.0.1",
+    "pg": "^8.20.0",
+    "vitest": "^4.1.11"
   }
 }

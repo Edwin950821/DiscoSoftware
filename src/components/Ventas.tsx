@@ -1,9 +1,9 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import { Card } from './ui/Card'
 import { useVentas } from '../hooks/useVentas'
 import { useJornadaDiaria } from '../hooks/useJornadaDiaria'
 import { API_PEDIDOS, apiFetch } from '../lib/config'
-import { getSocket } from '../lib/socket'
 import type { CuentaMesa, PartidaBillar, Pedido, ResumenJornada } from '../types'
 
 const fmtCOP = (n: number) => '$' + Number(n || 0).toLocaleString('es-CO')
@@ -39,7 +39,7 @@ export default function Ventas() {
       setConfirmPagar(null)
       refetchVentas()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al cobrar mesa')
+      toast.error(e instanceof Error ? e.message : 'Error al cobrar mesa')
     } finally {
       setPagandoId(null)
     }
@@ -52,7 +52,7 @@ export default function Ventas() {
       if (result) setJornadaCerradaExito(result)
       refetchVentas()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al cerrar jornada')
+      toast.error(e instanceof Error ? e.message : 'Error al cerrar jornada')
     }
   }
 
@@ -101,7 +101,7 @@ export default function Ventas() {
       cancelEdit()
       refetchVentas()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al editar pedido')
+      toast.error(e instanceof Error ? e.message : 'Error al editar pedido')
     } finally {
       setSaving(false)
     }
@@ -122,15 +122,7 @@ export default function Ventas() {
   useEffect(() => {
     fetchBillarPartidas()
     const id = setInterval(fetchBillarPartidas, 30000)
-    const socket = getSocket()
-    const handler = () => fetchBillarPartidas()
-    if (socket) {
-      socket.on('billar_partida_finalizada', handler)
-    }
-    return () => {
-      clearInterval(id)
-      if (socket) socket.off('billar_partida_finalizada', handler)
-    }
+    return () => clearInterval(id)
   }, [fetchBillarPartidas])
 
   const totalBillar = useMemo(() => partidasBillar.reduce((s, p) => s + (p.total || 0), 0), [partidasBillar])

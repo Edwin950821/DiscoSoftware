@@ -9,6 +9,7 @@ import type {
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { Input } from './ui/Input'
+import { toast } from 'sonner'
 import ImportarInventarioExcel from './ImportarInventarioExcel'
 import ImportarLiquidacionExcel from './ImportarLiquidacionExcel'
 import ImportarComparativoExcel from './ImportarComparativoExcel'
@@ -20,6 +21,7 @@ import { API_PEDIDOS, apiFetch } from '../lib/config'
 import { db } from '../lib/db'
 import { getInventarioDraft, setInventarioDraft, clearInventarioDraft } from '../lib/inventarioDraft'
 import { getSiInfoParaFecha } from '../lib/apertura'
+import { getPendingCount, getPendingOps, subscribePending, SYNC_PROGRESS_EVENT, flushQueue, describirOp, causaOp } from '../lib/syncQueue'
 
 const TIPOS_PAGO: TipoPago[] = ['Datafono', 'QR', 'Nequi']
 
@@ -76,10 +78,14 @@ function formatMoney(n: number): string {
 
 const printLogoUrl = `${window.location.origin}/assets/M05.png`
 
+function esc(s: string | number | null | undefined): string {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 function printHTML(title: string, body: string) {
   const w = window.open('', '_blank', 'width=900,height=700')
   if (!w) return
-  w.document.write(`<html><head><title>${title}</title>
+  w.document.write(`<html><head><title>${esc(title)}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; padding: 28px 32px; color: #1a1a1a; background: #fff; }
@@ -117,13 +123,13 @@ function saldoColor(v: number) { return v === 0 ? 'blue' : v < 0 ? 'green' : 're
 
 function printJornada(j: Jornada) {
   const esperado = j.totalVendido - j.cortesias - j.gastos
-  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion Diaria De<span>${j.sesion}</span></h1><p class="sub">${j.fecha}</p></div></div>`
+  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion Diaria De<span>${esc(j.sesion)}</span></h1><p class="sub">${esc(j.fecha)}</p></div></div>`
 
   body += '<h2>Meseros</h2><table><thead><tr><th>Nombre</th><th>Venta</th><th>Efectivo</th><th>Datafono</th><th>QR</th><th>Nequi</th><th>Vales</th><th>Cortesias</th><th>Gastos</th><th>Saldo</th></tr></thead><tbody>'
   for (const liq of j.liquidaciones || []) {
     const c = calcularLiquidacion(liq)
     body += `<tr>
-      <td>${liq.nombre}</td><td class="gold">${fmtFull(c.totalVenta)}</td>
+      <td>${esc(liq.nombre)}</td><td class="gold">${fmtFull(c.totalVenta)}</td>
       <td>${fmtFull(liq.efectivoEntregado ?? c.efectivo)}</td>
       <td>${c.totalDatafono ? fmtFull(c.totalDatafono) : '-'}</td>
       <td>${c.totalQR ? fmtFull(c.totalQR) : '-'}</td>
@@ -151,14 +157,14 @@ function printJornada(j: Jornada) {
 function printSemanal(jornadasVisibles: Jornada[], d: ReturnType<typeof calcSemanaData>) {
   const f0 = jornadasVisibles[0]?.fecha || ''
   const fN = jornadasVisibles[jornadasVisibles.length - 1]?.fecha || ''
-  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion <span>Semanal</span></h1><p class="sub">${f0} al ${fN} Â· ${jornadasVisibles.length} jornadas</p></div></div>`
+  let body = `<div class="header"><img src="${printLogoUrl}" alt="Monastery Club" /><div class="header-text"><h1>Liquidacion <span>Semanal</span></h1><p class="sub">${esc(f0)} al ${esc(fN)} · ${jornadasVisibles.length} jornadas</p></div></div>`
 
-  const cols = jornadasVisibles.map(j => `<th>${j.sesion}<br/><span style="font-weight:normal;font-size:9px">${j.fecha}</span></th>`).join('')
+  const cols = jornadasVisibles.map(j => `<th>${esc(j.sesion)}<br/><span style="font-weight:normal;font-size:9px">${esc(j.fecha)}</span></th>`).join('')
   const hasTotal = jornadasVisibles.length > 1
 
   body += '<h2>Meseros</h2><table><thead><tr><th>Nombre</th>' + cols + (hasTotal ? '<th>Liq. Semana</th>' : '') + '</tr></thead><tbody>'
   for (const t of d.trabajadores) {
-    body += `<tr><td>${t.nombre}</td>`
+    body += `<tr><td>${esc(t.nombre)}</td>`
     for (const v of t.totales) body += `<td>${v > 0 ? fmtCOP(v) : '-'}</td>`
     if (hasTotal) body += `<td class="bold">${fmtCOP(t.totales.reduce((a, v) => a + v, 0))}</td>`
     body += '</tr>'
@@ -259,15 +265,15 @@ interface Props {
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
   agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
   eliminarTrabajador: (id: string) => Promise<void>
-  guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
-  actualizarJornada: (id: string, input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
-  eliminarJornada: (id: string) => Promise<void>
-  guardarInventario: (inv: InventarioInput) => Promise<void>
-  actualizarInventario: (id: string, inv: InventarioInput) => Promise<void>
-  eliminarInventario: (id: string) => Promise<void>
-  guardarComparativo: (comp: ComparativoInput) => Promise<void>
-  actualizarComparativo: (id: string, comp: ComparativoInput) => Promise<void>
-  eliminarComparativo: (id: string) => Promise<void>
+  guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<{ queued?: boolean }>
+  actualizarJornada: (id: string, input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<{ queued?: boolean }>
+  eliminarJornada: (id: string) => Promise<{ queued?: boolean }>
+  guardarInventario: (inv: InventarioInput) => Promise<{ queued?: boolean }>
+  actualizarInventario: (id: string, inv: InventarioInput) => Promise<{ queued?: boolean }>
+  eliminarInventario: (id: string) => Promise<{ queued?: boolean }>
+  guardarComparativo: (comp: ComparativoInput) => Promise<{ queued?: boolean }>
+  actualizarComparativo: (id: string, comp: ComparativoInput) => Promise<{ queued?: boolean }>
+  eliminarComparativo: (id: string) => Promise<{ queued?: boolean }>
   initialTab?: 'inventario' | 'comparativo'
 }
 
@@ -302,8 +308,83 @@ export default function Liquidacion({
   const [guardandoLiq, setGuardandoLiq] = useState(false)
   const [nuevoTrabajador, setNuevoTrabajador] = useState('')
   const [confirmDeleteJ, setConfirmDeleteJ] = useState<string | null>(null)
-  const [modalExito, setModalExito] = useState<string | null>(null)
+  const [modalExito, setModalExito] = useState<{ titulo: string; detalle?: string; queued?: boolean } | null>(null)
+  const [pendientesSync, setPendientesSync] = useState(0)
+  const [pendientesOps, setPendientesOps] = useState<{ desc: string; n: number; causa: string }[]>([])
+  const [syncModal, setSyncModal] = useState<{ total: number; done: number; procesadas: number; estado: 'inicio' | 'progreso' | 'fin'; error?: string | null; ops?: string[] } | null>(null)
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  useEffect(() => {
+    const cargarPendientes = () => {
+      getPendingCount().then(setPendientesSync).catch(() => {})
+      getPendingOps().then(ops => {
+        const mapa = new Map<string, { n: number; servidor: number; internet: number; sin: number }>()
+        for (const op of ops) {
+          const desc = describirOp(op)
+          const causa = causaOp(op)
+          const ent = mapa.get(desc) ?? { n: 0, servidor: 0, internet: 0, sin: 0 }
+          ent.n += 1
+          if (causa === 'servidor') ent.servidor += 1
+          else if (causa === 'internet') ent.internet += 1
+          else ent.sin += 1
+          mapa.set(desc, ent)
+        }
+        setPendientesOps([...mapa.entries()].map(([desc, e]) => {
+          const partes: string[] = []
+          if (e.servidor) partes.push(`${e.servidor} con error del servidor`)
+          if (e.internet) partes.push(`${e.internet} sin conexión`)
+          if (e.sin && e.n > 1) partes.push(`${e.sin} pendiente(s)`)
+          return {
+            desc,
+            n: e.n,
+            causa: partes.length ? ` — ${partes.join(', ')}` : '',
+          }
+        }))
+      }).catch(() => {})
+    }
+    cargarPendientes()
+    const unsub = subscribePending(cargarPendientes)
+    return unsub
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent).detail
+      if (!d) return
+      if (d.estado === 'inicio') {
+        if (syncTimerRef.current) { clearTimeout(syncTimerRef.current); syncTimerRef.current = null }
+        setSyncModal({ total: d.total, done: 0, procesadas: 0, estado: 'inicio', ops: d.ops ?? [] })
+      } else if (d.estado === 'progreso') {
+        setSyncModal(prev => prev
+          ? { ...prev, done: d.done, procesadas: d.procesadas }
+          : { total: d.total, done: d.done, procesadas: d.procesadas, estado: 'progreso', ops: d.ops ?? [] })
+      } else {
+        const next = { total: d.total, done: d.done, procesadas: d.procesadas, estado: 'fin' as const, error: d.error ?? null, ops: d.ops ?? [] }
+        setSyncModal(next)
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+        syncTimerRef.current = setTimeout(() => setSyncModal(null), d.error ? 5000 : 2500)
+      }
+    }
+    window.addEventListener(SYNC_PROGRESS_EVENT, handler)
+    return () => {
+      window.removeEventListener(SYNC_PROGRESS_EVENT, handler)
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    }
+  }, [])
+
+  const cerrarModalExito = () => {
+    const eraQueued = modalExito?.queued
+    setModalExito(null)
+    setSesion('')
+    setFechaLiq(new Date().toISOString().split('T')[0])
+    _setLiquidaciones([])
+    setActiveTrabajadorId(null)
+    setEditJornadaId(null)
+    setModoLiq('lista')
+    setModoComp('lista')
+    setEditCompId(null)
+    if (eraQueued) flushQueue(true)
+  }
 
   const [modoInv, setModoInv] = useState<'lista' | 'nuevo' | 'editar'>(() => getInventarioDraft()?.modoInv ?? 'lista')
   const [editInvId, setEditInvId] = useState<string | null>(() => getInventarioDraft()?.editInvId ?? null)
@@ -558,26 +639,39 @@ export default function Liquidacion({
         }
       })
       const data = { sesion, fecha: fechaLiq, liquidaciones: liqsAGuardar }
+      let queued = false
       if (modoLiq === 'editar' && editJornadaId) {
-        await actualizarJornada(editJornadaId, data)
-        setModalExito('Liquidacion actualizada correctamente')
+        queued = (await actualizarJornada(editJornadaId, data))?.queued ?? false
       } else {
-        await guardarJornada(data)
-        setModalExito('Liquidacion guardada correctamente')
+        queued = (await guardarJornada(data))?.queued ?? false
       }
       setGuardandoLiq(false)
-      setTimeout(() => {
-        setModalExito(null)
-        setSesion(''); setFechaLiq(new Date().toISOString().split('T')[0])
-        _setLiquidaciones([]); setActiveTrabajadorId(null); setEditJornadaId(null); setModoLiq('lista')
-      }, 2000)
-    } catch {
+      if (queued) {
+        setModalExito({ titulo: 'Guardado en caché', queued: true })
+      } else {
+        setModalExito({
+          titulo: modoLiq === 'editar' ? 'Liquidación actualizada correctamente' : 'Liquidación guardada correctamente',
+          detalle: 'Datos almacenados correctamente',
+        })
+      }
+    } catch (err) {
       setGuardandoLiq(false)
-      alert('Error al guardar. Revisa la consola.')
+      console.error('Error guardando la liquidación:', err)
+      toast.error(`Error al guardar la liquidación: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
-  const handleEliminarJ = async (id: string) => { await eliminarJornada(id); setConfirmDeleteJ(null) }
+  const handleEliminarJ = async (id: string) => {
+    try {
+      const r = await eliminarJornada(id)
+      setConfirmDeleteJ(null)
+      if (r?.queued) {
+        setModalExito({ titulo: 'Eliminación en espera', queued: true })
+      }
+    } catch (err) {
+      toast.error(`Error al eliminar: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
 
   const handleAgregarTrabajador = async () => {
     if (!nuevoTrabajador.trim()) return
@@ -676,21 +770,41 @@ export default function Liquidacion({
     setGuardandoI(true)
     try {
       const data = { fecha: fechaInv, lineas: lineasInv, totalGeneral: totalGeneralInv }
+      let queued = false
       if (modoInv === 'editar' && editInvId) {
-        await actualizarInventario(editInvId, data)
-        setModalExito('Inventario actualizado correctamente')
+        queued = (await actualizarInventario(editInvId, data))?.queued ?? false
       } else {
-        await guardarInventario(data)
-        setModalExito('Inventario guardado correctamente')
+        queued = (await guardarInventario(data))?.queued ?? false
       }
       setGuardandoI(false)
+      if (queued) {
+        setModalExito({ titulo: 'Guardado en caché', queued: true })
+      } else {
+        setModalExito({
+          titulo: modoInv === 'editar' ? 'Inventario actualizado correctamente' : 'Inventario guardado correctamente',
+          detalle: 'Datos almacenados correctamente',
+        })
+      }
       setModoInv('lista')
       setEditInvId(null)
-      setTimeout(() => { setModalExito(null) }, 2000)
-    } catch { setGuardandoI(false); alert('Error al guardar inventario.') }
+    } catch (err) {
+      setGuardandoI(false)
+      console.error('Error guardando el inventario:', err)
+      toast.error(`Error al guardar inventario: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
-  const handleEliminarI = async (id: string) => { await eliminarInventario(id); setConfirmDeleteI(null); setExpandedInv(null) }
+  const handleEliminarI = async (id: string) => {
+    try {
+      const r = await eliminarInventario(id)
+      setConfirmDeleteI(null); setExpandedInv(null)
+      if (r?.queued) {
+        setModalExito({ titulo: 'Eliminación en espera', queued: true })
+      }
+    } catch (err) {
+      toast.error(`Error al eliminar: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
 
 
   const fechasComp = new Set(comparativos.map(c => c.fecha))
@@ -804,19 +918,39 @@ export default function Liquidacion({
     try {
       const totalDiferenciaComp = lineasComp.reduce((s, l) => s + l.diferencia, 0)
       const data = { fecha: fechaComp, fechaHasta: fechaHastaComp || fechaComp, lineas: lineasComp, totalConteo: totalConteoComp, totalTiquets: totalTiquetsComp, totalDiferencia: totalDiferenciaComp }
+      let queued = false
       if (modoComp === 'editar' && editCompId) {
-        await actualizarComparativo(editCompId, data)
-        setModalExito('Comparativo actualizado correctamente')
+        queued = (await actualizarComparativo(editCompId, data))?.queued ?? false
       } else {
-        await guardarComparativo(data)
-        setModalExito('Comparativo guardado correctamente')
+        queued = (await guardarComparativo(data))?.queued ?? false
       }
       setGuardandoC(false)
-      setTimeout(() => { setModalExito(null); setModoComp('lista'); setEditCompId(null) }, 2000)
-    } catch { setGuardandoC(false); alert('Error al guardar comparativo.') }
+      if (queued) {
+        setModalExito({ titulo: 'Guardado en caché', queued: true })
+      } else {
+        setModalExito({
+          titulo: modoComp === 'editar' ? 'Comparativo actualizado correctamente' : 'Comparativo guardado correctamente',
+          detalle: 'Datos almacenados correctamente',
+        })
+      }
+    } catch (err) {
+      setGuardandoC(false)
+      console.error('Error guardando el comparativo:', err)
+      toast.error(`Error al guardar comparativo: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
-  const handleEliminarC = async (id: string) => { await eliminarComparativo(id); setConfirmDeleteC(null); setExpandedComp(null) }
+  const handleEliminarC = async (id: string) => {
+    try {
+      const r = await eliminarComparativo(id)
+      setConfirmDeleteC(null); setExpandedComp(null)
+      if (r?.queued) {
+        setModalExito({ titulo: 'Eliminación en espera', queued: true })
+      }
+    } catch (err) {
+      toast.error(`Error al eliminar: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'liquidacion', label: 'Liquidacion' },
@@ -920,7 +1054,7 @@ export default function Liquidacion({
       )}
 
       {modalExito && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={e => e.stopPropagation()}>
           <div className="bg-[#141414] border border-[#CDA52F]/30 rounded-2xl p-8 text-center shadow-2xl max-w-sm mx-4"
             style={{ boxShadow: '0 0 40px rgba(205,165,47,0.15)' }}>
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#CDA52F]/10 flex items-center justify-center">
@@ -928,8 +1062,94 @@ export default function Liquidacion({
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
-            <p className="text-lg font-bold text-white mb-1">{modalExito}</p>
-            <p className="text-sm text-white/40">Datos almacenados correctamente</p>
+            <p className="text-lg font-bold text-white mb-1">{modalExito.titulo}</p>
+            <p className="text-sm text-white/40">
+              {modalExito.queued
+                ? pendientesSync === 0
+                  ? 'Todas las operaciones pendientes se sincronizaron correctamente.'
+                  : `Problema de conexión o del servidor. Tu información se guardó de forma segura y se sincronizará automáticamente cuando se restablezca la conexión. ${pendientesSync === 1
+                      ? '1 operación pendiente por sincronizar:'
+                      : `${pendientesSync} operaciones pendientes por sincronizar:`}`
+                : (modalExito.detalle ?? 'Datos almacenados correctamente')}
+            </p>
+            {modalExito.queued && pendientesSync > 0 && pendientesOps.length > 0 && (
+              <ul className="mt-3 text-left text-xs text-white/50 space-y-1.5 max-h-28 overflow-y-auto">
+                {pendientesOps.map((g, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="mt-0.5 text-[#CDA52F] font-bold">▸</span>
+                    <span>
+                      {g.desc}{g.n > 1 ? ` (×${g.n})` : ''}{g.causa ? ` — ${g.causa}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Btn onClick={cerrarModalExito} className="w-full mt-6">Aceptar</Btn>
+          </div>
+        </div>
+      )}
+
+      {syncModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-[#141414] border border-[#CDA52F]/30 rounded-2xl p-8 w-full max-w-sm mx-4 text-center"
+            style={{ boxShadow: '0 0 40px rgba(205,165,47,0.15)' }}>
+            <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+              {syncModal.estado === 'fin' && !syncModal.error ? (
+                <div className="w-16 h-16 rounded-full bg-[#CDA52F]/10 flex items-center justify-center">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#CDA52F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+              ) : (
+                <div className="w-14 h-14 rounded-full border-4 border-[#CDA52F]/20 border-t-[#CDA52F] animate-spin" />
+              )}
+            </div>
+            <p className="text-lg font-bold text-white mb-1">
+              {syncModal.estado === 'fin' && syncModal.error ? 'Sincronización detenida'
+                : syncModal.estado === 'fin' ? 'Sincronización completada'
+                : 'Sincronizando cambios pendientes'}
+            </p>
+            <p className="text-sm text-white/40 mb-4">
+              {syncModal.estado === 'fin' && syncModal.error
+                ? syncModal.error === 'auth'
+                  ? 'Tu sesión no está autorizada. Cierra sesión y vuelve a ingresar.'
+                  : syncModal.error === 'pendientes'
+                    ? 'Quedan operaciones sin sincronizar — error de conexión o del servidor. Se reintentará automáticamente.'
+                    : 'Sin conexión. La sincronización se reintentará automáticamente.'
+                : syncModal.estado === 'fin'
+                  ? <span className="text-[#4ECDC4] font-semibold">Sincronización exitosa — todos los cambios fueron guardados.</span>
+                  : syncModal.procesadas > 0
+                    ? `Procesando operación ${Math.min(syncModal.procesadas + 1, syncModal.total)} de ${syncModal.total}…`
+                    : 'Conectando con el servidor…'}
+            </p>
+            <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-300 ${syncModal.estado === 'fin' && !syncModal.error ? 'bg-[#4ECDC4]' : 'bg-[#CDA52F]'}`}
+                style={{ width: `${syncModal.total === 0 ? 100 : (syncModal.procesadas / syncModal.total) * 100}%` }} />
+            </div>
+            <p className={`text-xs font-bold mt-2 text-right ${syncModal.estado === 'fin' && !syncModal.error ? 'text-[#4ECDC4]' : 'text-[#CDA52F]'}`}>
+              {syncModal.estado === 'fin' && !syncModal.error
+                ? '✓ 100%'
+                : `${syncModal.total === 0 ? 100 : Math.round((syncModal.procesadas / syncModal.total) * 100)}%`}
+            </p>
+            {syncModal.ops && syncModal.ops.length > 0 && (
+              <ul className="mt-4 text-left text-xs text-white/50 space-y-1.5 max-h-32 overflow-y-auto">
+                {syncModal.ops.map((op, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className={`mt-px w-4 shrink-0 text-center font-bold ${
+                      i < syncModal.done ? 'text-[#4ECDC4]'
+                        : i < syncModal.procesadas ? 'text-[#FF5050]'
+                        : i === syncModal.procesadas ? 'text-[#CDA52F]'
+                        : 'text-white/25'}`}>
+                      {i < syncModal.done ? '✓' : i < syncModal.procesadas ? '✗' : i === syncModal.procesadas ? '…' : '•'}
+                    </span>
+                    <span className={i < syncModal.done ? 'text-white/35 line-through decoration-white/20' : ''}>{op}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {syncModal.estado === 'fin' && syncModal.error && (
+              <Btn onClick={() => { setSyncModal(null); flushQueue(true) }} className="w-full mt-5">Aceptar</Btn>
+            )}
           </div>
         </div>
       )}
@@ -944,7 +1164,7 @@ function LiquidacionLista({ jornadas, confirmDelete, setConfirmDelete, handleEli
   handleEliminar: (id: string) => void; onNueva: () => void; onEditar: (j: Jornada) => void
   onQuitarResaltado: (j: Jornada, trabajadorId: string, tipo: TipoPago) => void
   productos: Producto[]; trabajadores: Trabajador[]
-  guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
+  guardarJornada: (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<{ queued?: boolean }>
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
   agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
 }) {
@@ -1824,7 +2044,7 @@ function InventarioLista({ inventarios, expandedId, setExpandedId, confirmDelete
   confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNuevo: () => void; onEditar: (inv: InventarioType) => void; productosLoaded: boolean
   productos: Producto[]; agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
-  guardarInventario: (inv: InventarioInput) => Promise<void>
+  guardarInventario: (inv: InventarioInput) => Promise<{ queued?: boolean }>
 }) {
   const isReadOnly = useIsReadOnly()
   const [desde, setDesde] = useState('')
@@ -2059,7 +2279,7 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
   comparativos: ComparativoType[]; expandedId: string | null; setExpandedId: (id: string | null) => void
   confirmDelete: string | null; setConfirmDelete: (id: string | null) => void
   handleEliminar: (id: string) => void; onNuevo: () => void; onEditar: (c: ComparativoType) => void; productosLoaded: boolean
-  productos: Producto[]; guardarComparativo: (comp: ComparativoInput) => Promise<void>
+  productos: Producto[]; guardarComparativo: (comp: ComparativoInput) => Promise<{ queued?: boolean }>
 }) {
   const isReadOnly = useIsReadOnly()
   const [desde, setDesde] = useState('')
@@ -2108,14 +2328,14 @@ function ComparativoLista({ comparativos, expandedId, setExpandedId, confirmDele
       }
       setLocalesCount(await db.comparativos.count())
       if (fallidos.length > 0) {
-        alert(`Migrados ${ok}/${pendientes.length} a Neon. Fallaron:\n${fallidos.join('\n')}`)
+        toast.error(`Migrados ${ok}/${pendientes.length} a Neon. Fallaron:\n${fallidos.join('\n')}`)
       } else if (pendientes.length > 0) {
-        alert(`Migrados ${ok} comparativos a Neon correctamente.`)
+        toast.success(`Migrados ${ok} comparativos a Neon correctamente.`)
       } else {
-        alert('No hay comparativos locales pendientes de migrar.')
+        toast.info('No hay comparativos locales pendientes de migrar.')
       }
     } catch (e: any) {
-      alert(`Error al migrar: ${e?.message ?? 'desconocido'}`)
+      toast.error(`Error al migrar: ${e?.message ?? 'desconocido'}`)
     } finally {
       setMigrando(false)
     }
@@ -2302,7 +2522,7 @@ function LiquidacionSemana({
   inventarios: InventarioType[]
   productos: Producto[]
   trabajadores: Trabajador[]
-  guardarJornada: (j: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<void>
+  guardarJornada: (j: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => Promise<{ queued?: boolean }>
   agregarTrabajador: (t: Omit<Trabajador, 'id'>) => Promise<void>
   agregarProducto: (p: Omit<Producto, 'id'>) => Promise<void>
   onEditar: (j: Jornada) => void
@@ -2459,9 +2679,6 @@ function LiquidacionSemana({
   const d = useMemo(() => jornadasVisibles.length > 0 ? calcSemanaData(jornadasVisibles, inventarioSemana ?? 0) : null, [jornadasVisibles, inventarioSemana])
 
   const diasNombre = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
-
-  console.log('DEBUG inventarios:', inventarios.map(i => ({ fecha: i.fecha, total: i.totalGeneral, tipo: typeof i.totalGeneral })))
-  console.log('DEBUG jornadasVisibles fechas:', jornadasVisibles.map(j => j.fecha))
 
   return (
     <div>

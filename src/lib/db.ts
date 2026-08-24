@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie'
+import type { PendingOp } from './syncQueue'
 
 /* ── Tipos locales para auth ── */
 export interface LocalUser {
@@ -26,6 +27,7 @@ class MonasteryDB extends Dexie {
   partidasBillar!: Table
   users!: Table<LocalUser, number>
   jornadasDiarias!: Table
+  pendingOps!: Table<PendingOp, number>
 
   constructor() {
     super('MonasteryClub')
@@ -43,6 +45,22 @@ class MonasteryDB extends Dexie {
       partidasBillar: '++id, mesaBillarId, estado, jornadaFecha, [mesaBillarId+estado]',
       users: '++id, username, role',
       jornadasDiarias: '++id, fecha',
+    })
+    this.version(2).stores({
+      productos: '++id, nombre, activo',
+      trabajadores: '++id, nombre, activo, username',
+      jornadas: '++id, sesion, fecha, creadoEn',
+      inventarios: '++id, fecha, creadoEn',
+      comparativos: '++id, fecha, creadoEn',
+      mesas: '++id, numero, estado',
+      pedidos: '++id, mesaId, meseroId, estado, jornadaFecha, creadoEn, [mesaId+jornadaFecha]',
+      cuentas: '++id, mesaId, meseroId, estado, jornadaFecha, [mesaId+jornadaFecha+estado]',
+      promociones: '++id, activa',
+      mesasBillar: '++id, numero, activo',
+      partidasBillar: '++id, mesaBillarId, estado, jornadaFecha, [mesaBillarId+estado]',
+      users: '++id, username, role',
+      jornadasDiarias: '++id, fecha',
+      pendingOps: '++id, tipo, accion, negocioId, creadoEn, error',
     })
   }
 }

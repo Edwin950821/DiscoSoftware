@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
+import { toast } from 'sonner'
 import { Card } from './ui/Card'
 import { Btn } from './ui/Btn'
 import { useMesas } from '../hooks/useMesas'
@@ -102,7 +103,7 @@ export default function PedidosAdmin() {
       await atenderMesa(abrirMesaModal.id, selectedMeseroId, clienteNombreInput.trim() || 'Cliente')
       setAbrirMesaModal(null)
       refetchMesas()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error al atender mesa') }
     setAbrirLoading(false)
   }
 

@@ -7,6 +7,9 @@ CLAUDE.md
 .env.production
 .env
 .env.*
+.neon
+cookies.txt
+seed_mock_jornadas.sql
 vite-env.d.ts
 dist/
 .CLAUDE.md
@@ -18,5 +21,8 @@ electron-builder.json
 release/
 package-lock.json
 yarn.lock
+pnpm-lock.yaml
+coverage
+test-results
 .vite.config.ts
 .eslintrc.js

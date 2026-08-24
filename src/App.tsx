@@ -20,6 +20,7 @@ import { useSuperNotifications, type SuperNotificacion } from './hooks/useSuperN
 import NotificationBell from './components/NotificationBell'
 import { seedDatabase } from './lib/seedData'
 import { limpiarNegocioGhostSiNoExiste } from './lib/config'
+import { initSyncListener } from './lib/syncQueue'
 import type { DiscoRol, NegocioInfo, View } from './types'
 
 limpiarNegocioGhostSiNoExiste()
@@ -126,6 +127,8 @@ export default function App() {
   const [seeded, setSeeded] = useState(false)
   useEffect(() => { seedDatabase().then(() => setSeeded(true)) }, [])
 
+  useEffect(() => { initSyncListener() }, [])
+
   useEffect(() => {
     if (!seeded) return
     const splash = document.getElementById('splash')
@@ -148,7 +151,6 @@ export default function App() {
 
   const handleLogin = (at: string, rt: string, r: DiscoRol, n: string, mId: string | undefined, negs: NegocioInfo[]) => {
     const activo = r === 'SUPER' ? null : (negs[0]?.id ?? null)
-    console.log('[LOGIN] App: login exitoso ->', { rol: r, nombre: n, negocioActivo: activo, negocios: negs.length })
     saveSession({ accessToken: at, refreshToken: rt, rol: r, nombre: n, meseroId: mId, negocios: negs, negocioActivo: activo })
     window.location.reload()
   }

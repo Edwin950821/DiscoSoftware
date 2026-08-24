@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-
 const STORAGE_KEY = 'monastery_colores_pago'
 
-const COLORES_DEFAULT: Record<string, string> = {
+const COLORES_DEFAULT: 
+Record<string, string> = {
   Efectivo: '#CDA52F',
   Datafono: '#A8E6CF',
   QR: '#4ECDC4',

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { API_MANAGEMENT, apiFetch } from '../lib/config'
 import type { Jornada, LiquidacionTrabajador } from '../types'
 import { calcularLiquidacion, calcularCuadreDia } from '../lib/utils'
+import { enqueueOp, isNetworkError, SYNC_EVENT } from '../lib/syncQueue'
 
 export function useJornadas() {
   const [jornadas, setJornadas] = useState<Jornada[]>([])
@@ -52,7 +53,13 @@ export function useJornadas() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const guardar = async (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => {
+  useEffect(() => {
+    const handler = () => { fetchAll() }
+    window.addEventListener(SYNC_EVENT, handler)
+    return () => window.removeEventListener(SYNC_EVENT, handler)
+  }, [fetchAll])
+
+  const guardar = async (input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }): Promise<{ queued?: boolean }> => {
     const meseros = input.liquidaciones.map(liq => {
       const c = calcularLiquidacion(liq)
       const pagos: Record<string, number> = {}
@@ -72,14 +79,24 @@ export function useJornadas() {
         gastosDetalle: liq.gastos?.filter(g => g.monto > 0) || [],
       }
     })
-    const res = await apiFetch(`${API_MANAGEMENT}/jornadas`, {
-      method: 'POST', body: JSON.stringify({ sesion: input.sesion, fecha: input.fecha, meseros }),
-    })
-    if (!res.ok) throw new Error(`Error al guardar jornada: ${res.status}`)
-    await fetchAll()
+    const body = { sesion: input.sesion, fecha: input.fecha, meseros }
+    try {
+      const res = await apiFetch(`${API_MANAGEMENT}/jornadas`, {
+        method: 'POST', body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`Error al guardar jornada: ${res.status}`)
+      await fetchAll()
+      return {}
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await enqueueOp({ tipo: 'jornada', accion: 'crear', payload: body })
+        return { queued: true }
+      }
+      throw err
+    }
   }
 
-  const actualizar = async (id: string, input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }) => {
+  const actualizar = async (id: string, input: { sesion: string; fecha: string; liquidaciones: LiquidacionTrabajador[] }): Promise<{ queued?: boolean }> => {
     const meseros = input.liquidaciones.map(liq => {
       const c = calcularLiquidacion(liq)
       const pagos: Record<string, number> = {}
@@ -99,16 +116,36 @@ export function useJornadas() {
         gastosDetalle: liq.gastos?.filter(g => g.monto > 0) || [],
       }
     })
-    const res = await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, {
-      method: 'PUT', body: JSON.stringify({ sesion: input.sesion, fecha: input.fecha, meseros }),
-    })
-    if (!res.ok) throw new Error(`Error al actualizar jornada: ${res.status}`)
-    await fetchAll()
+    const body = { sesion: input.sesion, fecha: input.fecha, meseros }
+    try {
+      const res = await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, {
+        method: 'PUT', body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`Error al actualizar jornada: ${res.status}`)
+      await fetchAll()
+      return {}
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await enqueueOp({ tipo: 'jornada', accion: 'actualizar', targetId: id, payload: body })
+        return { queued: true }
+      }
+      throw err
+    }
   }
 
-  const eliminar = async (id: string) => {
-    await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, { method: 'DELETE' })
-    await fetchAll()
+  const eliminar = async (id: string): Promise<{ queued?: boolean }> => {
+    try {
+      const res = await apiFetch(`${API_MANAGEMENT}/jornadas/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`Error al eliminar jornada: ${res.status}`)
+      await fetchAll()
+      return {}
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await enqueueOp({ tipo: 'jornada', accion: 'eliminar', targetId: id })
+        return { queued: true }
+      }
+      throw err
+    }
   }
 
   return { jornadas, guardar, actualizar, eliminar }

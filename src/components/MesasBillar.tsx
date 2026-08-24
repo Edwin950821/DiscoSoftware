@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { toast } from 'sonner'
 import { Card } from './ui/Card'
 import { useBillar } from '../hooks/useBillar'
 import { useJornadaDiaria } from '../hooks/useJornadaDiaria'
@@ -56,7 +57,7 @@ export default function MesasBillar() {
       const partidas = await fetchPartidasPorFecha(fecha)
       setPartidasPorJornada(prev => ({ ...prev, [fecha]: partidas.filter(p => p.estado === 'FINALIZADA') }))
     } catch (e: any) {
-      alert(e.message || 'Error al cargar partidas')
+      toast.error(e?.message || 'Error al cargar partidas')
     } finally {
       setLoadingJornadaPartidas(null)
     }
@@ -122,7 +123,7 @@ export default function MesasBillar() {
       const data = await cerrarJornadaHook()
       setJornadaCerradaResult(data)
       setShowCerrarJornada(false)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
   }
 
   const handleCrear = async () => {
@@ -133,7 +134,7 @@ export default function MesasBillar() {
       setNewNombre('')
       setNewPrecio('20000')
       setShowAddForm(false)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
     setLoading(false)
   }
 
@@ -146,7 +147,7 @@ export default function MesasBillar() {
       setShowPlay(null)
       setClienteNombre('')
       setPrecioCustom('')
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
     setLoading(false)
   }
 
@@ -157,7 +158,7 @@ export default function MesasBillar() {
       const result = await finalizarPartida(showFinish.id)
       setFinishResult(result)
       setShowFinish(null)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
     setLoading(false)
   }
 
@@ -167,7 +168,7 @@ export default function MesasBillar() {
     try {
       await eliminarMesa(id)
       setConfirmDelete(null)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
     setLoading(false)
   }
 
@@ -183,7 +184,7 @@ export default function MesasBillar() {
     try {
       await trasladarPartida(showTransfer.id, mesaDestinoId)
       setShowTransfer(null)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
     setLoading(false)
   }
 
@@ -198,7 +199,7 @@ export default function MesasBillar() {
         precioPorHora: Number(editPrecio) || showEdit.precioPorHora
       })
       setShowEdit(null)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
     setLoading(false)
   }
 
@@ -715,7 +716,7 @@ export default function MesasBillar() {
                 }
                 await refetchHistorial()
                 setEditPartida(null)
-              } catch (e: any) { alert(e.message) }
+              } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
               setLoading(false)
             }} className="flex-1 px-4 py-2.5 rounded-xl bg-[#4ECDC4] text-black text-sm font-semibold hover:bg-[#4ECDC4]/80 transition-all disabled:opacity-40">
               {loading ? 'Guardando...' : 'Guardar'}
@@ -746,7 +747,7 @@ export default function MesasBillar() {
                   }
                   await refetchHistorial()
                   setConfirmDeletePartida(null)
-                } catch (e: any) { alert(e.message) }
+                } catch (e: any) { toast.error(e?.message || 'Error inesperado') }
                 setLoading(false)
               }} className="flex-1 px-4 py-2.5 rounded-xl bg-[#FF5050] text-white text-sm font-semibold hover:bg-[#FF5050]/80 transition-all disabled:opacity-40">
                 {loading ? 'Eliminando...' : 'Eliminar'}
