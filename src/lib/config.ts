@@ -71,6 +71,8 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   }
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
   if (negocioActivo) headers['X-Negocio-Id'] = negocioActivo
   const signal = options.signal ?? AbortSignal.timeout(30000)
   const res = await fetch(path, { ...options, signal, headers, credentials: 'include' })
