@@ -121,7 +121,7 @@ export default function Ventas() {
 
   useEffect(() => {
     fetchBillarPartidas()
-    const id = setInterval(fetchBillarPartidas, 30000)
+    const id = setInterval(fetchBillarPartidas, 900000)
     return () => clearInterval(id)
   }, [fetchBillarPartidas])
 
